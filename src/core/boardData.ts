@@ -7,6 +7,7 @@ export type TileType =
   | 'DESERTED_ISLAND'
   | 'FESTIVAL'
   | 'END_PORTAL'
+  | 'NETHER_PORTAL'
   | 'ROYAL_TAX'
   | 'RAILROAD'
   | 'UTILITY';
@@ -536,11 +537,11 @@ const RAW_TILES_40: Omit<TileConfig, 'gridX' | 'gridZ' | 'side' | 'outwardRotati
   },
   {
     index: 33,
-    name: 'Rương Kho Báu Cổ Đại',
-    type: 'CHEST',
-    icon: '🧰',
-    colorHex: '#f59e0b',
-    description: 'Khí Vận Minecraft • Mở rương báu vật tối thượng của thế giới ngầm!'
+    name: 'Cổng Dịch Chuyển Nether',
+    type: 'NETHER_PORTAL',
+    icon: '🟣',
+    colorHex: '#a855f7',
+    description: 'Cổng Obsidian Nether! Dịch chuyển xuyên không gian (1 bước Nether = 8 bước Overworld) kèm +$120 Vàng Piglin!'
   },
   {
     index: 34,

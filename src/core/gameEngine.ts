@@ -44,6 +44,7 @@ export interface TileResolutionResult {
     | 'SKIP_TURN_SET'
     | 'CHOOSE_FESTIVAL_TILE'
     | 'CHOOSE_PORTAL_TARGET'
+    | 'NETHER_PORTAL_READY'
     | 'PAID_ROYAL_TAX'
     | 'INSUFFICIENT_GOLD';
   tileIndex: number;
@@ -51,6 +52,8 @@ export interface TileResolutionResult {
   amount?: number;
   ownerId?: string;
   ownerName?: string;
+  payerPrevGold?: number;
+  ownerPrevGold?: number;
   chestCard?: ChestCard;
   message: string;
 }
@@ -387,6 +390,44 @@ export class GameEngine {
     return { ok: true, passedStart };
   }
 
+  public warpThroughNetherPortal(
+    playerId: string,
+    forcedNetherDie?: number
+  ): {
+    netherDie: number;
+    overworldSteps: number;
+    targetTileIndex: number;
+    passedStart: boolean;
+  } {
+    const player = this.getPlayerById(playerId);
+    const netherDie = forcedNetherDie ?? Math.floor(Math.random() * 5) + 1; // 1..5 Nether steps -> 8..40 Overworld steps
+    const overworldSteps = netherDie * 8;
+    const oldPos = player.position;
+    const target = (oldPos + overworldSteps) % BOARD_SIZE;
+
+    const passedStart = oldPos + overworldSteps >= BOARD_SIZE;
+    player.position = target;
+    player.gold += 120; // Piglin Bastion Gold Bonus
+
+    if (passedStart) {
+      player.gold += 200;
+      this.addLog(
+        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin & +$200 Qua Khởi Hành)!`
+      );
+    } else {
+      this.addLog(
+        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin)!`
+      );
+    }
+
+    return {
+      netherDie,
+      overworldSteps,
+      targetTileIndex: target,
+      passedStart
+    };
+  }
+
   public resolveTileLanding(playerId: string): TileResolutionResult {
     const player = this.getPlayerById(playerId);
     const tileIndex = player.position;
@@ -448,6 +489,9 @@ export class GameEngine {
 
         const owner = this.getPlayerById(state.ownerId);
         const rent = this.calculateRent(tileIndex);
+        const payerPrevGold = player.gold;
+        const ownerPrevGold = owner.gold;
+
         player.gold -= rent;
         owner.gold += rent;
         this.addLog(
@@ -461,6 +505,8 @@ export class GameEngine {
           amount: rent,
           ownerId: owner.id,
           ownerName: owner.name,
+          payerPrevGold,
+          ownerPrevGold,
           message: `Đã trả $${rent} tiền thuê đất cho ${owner.name}!`
         };
       }
@@ -518,7 +564,17 @@ export class GameEngine {
           action: 'CHOOSE_PORTAL_TARGET',
           tileIndex,
           tileName: cfg.name,
-          message: `🌌 Cổng Dịch Chuyển The End đã mở! Hãy chọn bất kỳ ô nào trên 40 ô để bay tới!`
+          message: `🌌 Cổng Dịch Chuyển The End (12 Khung) đã mở! Hãy chọn bất kỳ ô nào trên 40 ô để bay tới!`
+        };
+      }
+
+      case 'NETHER_PORTAL': {
+        return {
+          action: 'NETHER_PORTAL_READY',
+          tileIndex,
+          tileName: cfg.name,
+          amount: 120,
+          message: `🟣 Cổng Obsidian Nether đang xoáy tím rực! Bước qua cổng để nhảy vọt xuyên chiều không gian (1 bước Nether = 8 bước Overworld) và nhận +$120 Vàng Piglin!`
         };
       }
 

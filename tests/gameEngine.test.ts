@@ -129,4 +129,29 @@ describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency
     expect(decision.type).toBe('BUY_PROPERTY');
     expect(decision.tileIndex).toBe(6);
   });
+
+  it('supports Nether Portal (Tile 33) x8 Overworld dimension warp and tracks payerPrevGold/ownerPrevGold on PAID_RENT', () => {
+    const engine = new GameEngine('PASS_AND_PLAY', 2);
+    const [p0, p1] = engine.getPlayers();
+
+    // Test Nether Portal (Tile 33): 2 Nether steps = 16 Overworld steps -> (33 + 16) % 40 = 9 (passes Start!)
+    p0.position = 33;
+    const beforeWarpGold = p0.gold;
+    const warp = engine.warpThroughNetherPortal(p0.id, 2);
+    expect(warp.netherDie).toBe(2);
+    expect(warp.overworldSteps).toBe(16);
+    expect(warp.targetTileIndex).toBe(9);
+    expect(warp.passedStart).toBe(true);
+    expect(p0.gold).toBe(beforeWarpGold + 120 + 200);
+
+    // Test PAID_RENT returns payerPrevGold & ownerPrevGold for unit-by-unit HUD counter
+    engine.buyProperty(p0.id, 9);
+    p1.position = 9;
+    const p1Before = p1.gold;
+    const p0Before = p0.gold;
+    const rentRes = engine.resolveTileLanding(p1.id);
+    expect(rentRes.action).toBe('PAID_RENT');
+    expect(rentRes.payerPrevGold).toBe(p1Before);
+    expect(rentRes.ownerPrevGold).toBe(p0Before);
+  });
 });

@@ -43,6 +43,90 @@ body,
 }
 
 /* ==========================================================================
+   SUBTLE ROUNDED KEYCAP PLACEHOLDER (.key-hint) & 2D PARABOLIC '$' OVERLAY
+   ========================================================================== */
+.key-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-family: var(--font-main);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.2px;
+  color: rgba(248, 250, 252, 0.68);
+  background: rgba(15, 23, 42, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  vertical-align: middle;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.fx-2d-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 55;
+  overflow: hidden;
+}
+
+.flying-dollar-2d {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  border: 1.5px solid #fde047;
+  color: #ffffff;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.55);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.coin-delta-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  animation: popInCard 0.2s ease-out;
+}
+
+.coin-delta-badge.minus {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+}
+
+.coin-delta-badge.plus {
+  background: rgba(16, 185, 129, 0.24);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+}
+
+.player-rect-coin.counting-down {
+  color: #f87171 !important;
+  transform: scale(1.06);
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.player-rect-coin.counting-up {
+  color: #fde047 !important;
+  transform: scale(1.08);
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+/* ==========================================================================
    REDESIGNED TOP NAVIGATION BAR (Camera Normal/Live + Reset + Modern Settings)
    ========================================================================== */
 #top-hud {

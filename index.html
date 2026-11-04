@@ -16,7 +16,10 @@
       <!-- 3D WebGL Canvas Container -->
       <div id="canvas-container" aria-label="Bàn cờ 3D Đảo Nổi 40 Ô AstroCyberr Monopoly"></div>
 
-      <!-- Redesigned Top Navigation Bar (Vietnamese Font + Camera Normal/Live Switcher + Reset + Modern Settings) -->
+      <!-- 2D Parabolic Flying '$' Overlay Container -->
+      <div id="fx-2d-overlay" class="fx-2d-overlay" aria-hidden="true"></div>
+
+      <!-- Redesigned Top Navigation Bar (Vietnamese Font + Camera Normal/Live [F] + Reset [R] + Settings) -->
       <header id="top-hud">
         <div class="brand-badge">
           <span class="brand-icon">⛏️</span>
@@ -29,21 +32,22 @@
         </div>
 
         <div class="nav-right-wrapper">
-          <!-- Dual Camera Mode Switcher: Normal vs Live -->
-          <div class="cam-mode-segmented" role="group" aria-label="Chế độ Camera">
+          <!-- Dual Camera Mode Switcher: Normal vs Live (Press F to toggle quickly) -->
+          <div class="cam-mode-segmented" role="group" aria-label="Chế độ Camera (Phím F)">
             <button
               id="btn-cam-normal"
               class="cam-seg-btn active"
-              title="Camera Normal: Góc nhìn toàn cảnh 45°, click vào ô để lướt mượt tới xem"
+              title="Camera Normal: Góc nhìn toàn cảnh 45°, click vào ô để lướt mượt tới xem (Phím tắt: F)"
             >
-              🎥 Normal
+              <span>🎥 Normal</span>
             </button>
             <button
               id="btn-cam-live"
               class="cam-seg-btn"
-              title="Camera Live: Tự động di chuyển bám theo nhân vật đang tới lượt"
+              title="Camera Live: Tự động di chuyển bám theo nhân vật đang tới lượt (Phím tắt: F)"
             >
-              🎬 Live
+              <span>🎬 Live</span>
+              <kbd class="key-hint">F</kbd>
             </button>
           </div>
 
@@ -52,7 +56,8 @@
             class="cam-reset-btn"
             title="Đưa camera lướt mượt về góc nhìn toàn cảnh 45° (Phím tắt: R)"
           >
-            🔄 Toàn Cảnh
+            <span>🔄 Toàn Cảnh</span>
+            <kbd class="key-hint">R</kbd>
           </button>
 
           <button
@@ -82,7 +87,7 @@
           <div id="settings-popover" class="settings-popover hidden">
             <div class="popover-title">
               <span>⚙️ CÀI ĐẶT HỆ THỐNG</span>
-              <span class="popover-version">v3.0</span>
+              <span class="popover-version">v3.5</span>
             </div>
 
             <!-- Toggle Switch: SFX -->
@@ -160,7 +165,9 @@
             <span id="tile-popup-icon">🚩</span>
             <h3 id="tile-popup-title">#0 Ô Khởi Hành</h3>
           </div>
-          <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng và về toàn cảnh">✕</button>
+          <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng và hạ ô đất (Esc)">
+            ✕
+          </button>
         </div>
         <div class="tile-popup-vertical-body" id="tile-popup-body"></div>
       </section>
@@ -184,7 +191,7 @@
         </div>
       </aside>
 
-      <!-- Dice Total Fusion Confirmation Overlay (3s Countdown / Confirm Move) -->
+      <!-- Dice Total Fusion Confirmation Overlay (Shown ONLY for Human Player Turns! Press Space to Skip) -->
       <div id="dice-fusion-confirm-bar" class="dice-fusion-confirm-bar hidden">
         <div class="fusion-formula-row">
           <span class="fusion-die-badge" id="fusion-d1">3</span>
@@ -195,11 +202,12 @@
           <span id="fusion-doubles-tag" class="fusion-doubles-tag hidden">🔥 ĐỔ ĐÔI! +1 LƯỢT</span>
         </div>
         <button id="btn-confirm-move-now" class="btn-confirm-move">
-          🚀 Tiếp Tục Di Chuyển (<span id="fusion-countdown-sec">3</span>s)
+          <span>Skip (<span id="fusion-countdown-sec">3</span>s)</span>
+          <kbd class="key-hint">Space</kbd>
         </button>
       </div>
 
-      <!-- Floating Action Modal (Mua Đất / Nâng Cấp Nhà / Trả Tiền Thuê / Cổng Dịch Chuyển) -->
+      <!-- Floating Action Modal (Mua Đất [Space] / Bỏ Qua [Esc] / Nâng Cấp Nhà [Space] / Cổng Dịch Chuyển) -->
       <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">
         <div class="action-card-inner" id="action-card-inner"></div>
       </div>
@@ -208,7 +216,7 @@
       <div id="bottom-right-dock">
         <div id="roll-power-bar-wrap" class="roll-power-bar-wrap">
           <div class="roll-power-label-row">
-            <span>⚡ LỰC NÉM (GIỮ SPACE)</span>
+            <span>⚡ LỰC NÉM</span>
             <strong id="roll-power-pct">0%</strong>
           </div>
           <div class="roll-power-track">
@@ -218,6 +226,7 @@
         <button id="btn-roll-dice" class="btn-roll-dice">
           <span class="dice-icon-anim">🎲</span>
           <span id="btn-roll-text">TUNG XÚC XẮC</span>
+          <kbd class="key-hint">Space</kbd>
         </button>
       </div>
 

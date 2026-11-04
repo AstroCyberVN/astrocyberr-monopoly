@@ -21,36 +21,29 @@ function createHighResTileTexture(
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  const isDarkTile = tile.type === 'END_PORTAL';
+  const isDarkTile = tile.type === 'END_PORTAL' || tile.type === 'NETHER_PORTAL';
   const isCorner = tile.index % 10 === 0;
 
-  // Outer card background
   ctx.fillStyle = isDarkTile ? '#1e1b4b' : isCorner ? '#fefce8' : '#ffffff';
   ctx.fillRect(0, 0, 512, 512);
 
-  // Inner beveled card surface
   ctx.fillStyle = isDarkTile ? '#2e1065' : isCorner ? '#fef9c3' : '#f8fafc';
   ctx.fillRect(20, 20, 472, 472);
 
-  // Crisp outer border (tinted with owner color if owned, otherwise biome color)
   ctx.strokeStyle = ownerColorHex || tile.colorHex;
   ctx.lineWidth = 24;
   ctx.strokeRect(12, 12, 488, 488);
 
-  // Inner subtle bevel frame
   ctx.strokeStyle = isDarkTile ? 'rgba(216, 180, 254, 0.35)' : 'rgba(15, 23, 42, 0.12)';
   ctx.lineWidth = 4;
   ctx.strokeRect(28, 28, 456, 456);
 
-  // Top Biome Header Strip (faces inward toward island, while bottom of canvas faces outward)
   ctx.fillStyle = tile.colorHex;
   ctx.fillRect(24, 24, 464, 108);
 
-  // Top header gloss highlight
   ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
   ctx.fillRect(24, 24, 464, 26);
 
-  // Tile Number Pill (#0..#39)
   ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
   ctx.fillRect(36, 38, 112, 74);
   ctx.fillStyle = '#ffffff';
@@ -59,7 +52,6 @@ function createHighResTileTexture(
   ctx.textBaseline = 'middle';
   ctx.fillText(`#${tile.index}`, 92, 76);
 
-  // Festival Multiplier Badge if x2
   if (festivalMultiplier > 1) {
     ctx.fillStyle = '#ec4899';
     ctx.fillRect(358, 38, 118, 74);
@@ -68,13 +60,11 @@ function createHighResTileTexture(
     ctx.fillText(`x${festivalMultiplier}`, 417, 76);
   }
 
-  // Large Emoji Icon
   ctx.font = '108px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(tile.icon, 256, 208);
 
-  // Multi-line Crisp Vietnamese Tile Name (100% diacritic support via Be Vietnam Pro)
   ctx.fillStyle = isDarkTile ? '#ffffff' : '#0f172a';
   ctx.font = '800 40px "Be Vietnam Pro", "Nunito", sans-serif';
 
@@ -99,7 +89,6 @@ function createHighResTileTexture(
     ctx.fillText(line1, 256, 348);
   }
 
-  // Bottom Emerald Currency Price Bar ($ in Emerald Green!)
   ctx.fillStyle = isDarkTile ? 'rgba(15, 23, 42, 0.94)' : '#0f172a';
   ctx.fillRect(34, 410, 444, 74);
 
@@ -118,7 +107,10 @@ function createHighResTileTexture(
     ctx.fillText(`KHO BÁU`, 256, 449);
   } else if (tile.type === 'END_PORTAL') {
     ctx.fillStyle = '#d8b4fe';
-    ctx.fillText(`DỊCH CHUYỂN`, 256, 449);
+    ctx.fillText(`CỔNG THE END`, 256, 449);
+  } else if (tile.type === 'NETHER_PORTAL') {
+    ctx.fillStyle = '#f0abfc';
+    ctx.fillText(`CỔNG NETHER`, 256, 449);
   } else if (tile.type === 'FESTIVAL') {
     ctx.fillStyle = '#f472b6';
     ctx.fillText(`THUÊ x2`, 256, 449);
@@ -134,45 +126,356 @@ function createHighResTileTexture(
 }
 
 /**
- * Generates a metallic Minecraft Iron Block texture with characteristic horizontal sheen & rivet border
- * for the 9 floating Iron Blocks under the 3D Target Beacon!
+ * Helper to configure crisp 16x16 Minecraft Pixel-Art textures with NearestFilter
+ */
+function finalizePixelTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+/**
+ * 1. Authentic 16x16 Minecraft Iron Block Pixel-Art Texture
  */
 function createMinecraftIronBlockTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
+  canvas.width = 16;
+  canvas.height = 16;
   const ctx = canvas.getContext('2d')!;
 
-  const grad = ctx.createLinearGradient(0, 0, 128, 128);
-  grad.addColorStop(0, '#f8fafc');
-  grad.addColorStop(0.5, '#e2e8f0');
-  grad.addColorStop(1, '#cbd5e1');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 128, 128);
+  // Base metallic iron fill
+  ctx.fillStyle = '#dcdcdc';
+  ctx.fillRect(0, 0, 16, 16);
 
-  // Outer beveled iron border
-  ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 10;
-  ctx.strokeRect(5, 5, 118, 118);
+  // Outer dark iron bevel (bottom & right)
+  ctx.fillStyle = '#a0a0a0';
+  ctx.fillRect(0, 15, 16, 1);
+  ctx.fillRect(15, 0, 1, 16);
 
-  // Inner bright highlight frame
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(12, 12, 104, 104);
+  // Outer bright highlight bevel (top & left)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, 15, 1);
+  ctx.fillRect(0, 0, 1, 15);
 
-  // Characteristic horizontal Minecraft Iron Block streaks
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
-  for (let y = 26; y <= 102; y += 18) {
-    ctx.fillRect(18, y, 92, 6);
+  // Inner frame
+  ctx.fillStyle = '#c2c2c2';
+  ctx.strokeRect(1.5, 1.5, 13, 13);
+
+  // Characteristic horizontal Minecraft Iron Block shading bands & diagonal sheen
+  const rows = [
+    '#efefef',
+    '#e4e4e4',
+    '#d2d2d2',
+    '#e8e8e8',
+    '#efefef',
+    '#dcdcdc',
+    '#cccccc',
+    '#e2e2e2',
+    '#ececec',
+    '#dadada',
+    '#c8c8c8',
+    '#dfdfdf'
+  ];
+  for (let y = 2; y < 14; y++) {
+    ctx.fillStyle = rows[y - 2];
+    ctx.fillRect(2, y, 12, 1);
+  }
+  // Subtle pixel highlights inside
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(3, 3, 4, 1);
+  ctx.fillRect(5, 7, 5, 1);
+  ctx.fillRect(4, 11, 4, 1);
+
+  return finalizePixelTexture(canvas);
+}
+
+/**
+ * 2. Authentic 16x16 Minecraft Obsidian Pixel-Art Texture (used for Beacon Base & Nether Portal)
+ */
+function createMinecraftObsidianTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d')!;
+
+  const palette = ['#0f0a18', '#14121e', '#1d162b', '#291e3e', '#3b2754', '#100c1c'];
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const idx = (x * 7 + y * 13 + ((x ^ y) * 3)) % palette.length;
+      ctx.fillStyle = palette[idx];
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  // Characteristic diagonal purple crystalline highlights in Minecraft Obsidian
+  ctx.fillStyle = '#4c326e';
+  ctx.fillRect(3, 2, 2, 1);
+  ctx.fillRect(2, 3, 1, 2);
+  ctx.fillRect(10, 5, 2, 1);
+  ctx.fillRect(9, 6, 1, 2);
+  ctx.fillRect(5, 11, 3, 1);
+  ctx.fillRect(12, 12, 2, 2);
+
+  return finalizePixelTexture(canvas);
+}
+
+/**
+ * 3. Authentic 16x16 Minecraft Beacon Glass Shell Pixel-Art Texture
+ */
+function createMinecraftBeaconGlassTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d')!;
+
+  // Very subtle cyan-tinted transparent glass pane
+  ctx.fillStyle = 'rgba(165, 243, 252, 0.14)';
+  ctx.fillRect(1, 1, 14, 14);
+
+  // Outer pixel glass frame (1px border)
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillRect(0, 0, 16, 1);
+  ctx.fillRect(0, 15, 16, 1);
+  ctx.fillRect(0, 0, 1, 16);
+  ctx.fillRect(15, 0, 1, 16);
+
+  // Bright white-cyan inner corner pixels & glass streaks
+  ctx.fillStyle = '#ecfeff';
+  ctx.fillRect(1, 1, 2, 1);
+  ctx.fillRect(1, 2, 1, 1);
+  ctx.fillRect(13, 1, 2, 1);
+  ctx.fillRect(14, 2, 1, 1);
+
+  // Diagonal glass reflection streaks
+  ctx.fillRect(3, 3, 1, 1);
+  ctx.fillRect(4, 4, 1, 1);
+  ctx.fillRect(5, 5, 1, 1);
+  ctx.fillRect(11, 10, 1, 1);
+  ctx.fillRect(12, 11, 1, 1);
+
+  return finalizePixelTexture(canvas);
+}
+
+/**
+ * 4. Authentic 16x16 Minecraft Beacon Nether Star Core Pixel-Art Texture
+ */
+function createMinecraftBeaconCoreTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#0891b2';
+  ctx.fillRect(0, 0, 16, 16);
+
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillRect(1, 1, 14, 14);
+
+  ctx.fillStyle = '#67e8f9';
+  ctx.fillRect(2, 2, 12, 12);
+
+  ctx.fillStyle = '#a5f3fc';
+  ctx.fillRect(4, 4, 8, 8);
+
+  // Glowing white Nether Star cross in the center
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(6, 2, 4, 12);
+  ctx.fillRect(2, 6, 12, 4);
+  ctx.fillRect(5, 5, 6, 6);
+
+  return finalizePixelTexture(canvas);
+}
+
+/**
+ * 5. Authentic Scrolling Minecraft Beacon Light Beam Texture (Pixelated Energy Stripes & Rings)
+ */
+function createMinecraftBeaconBeamTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, 32, 64);
+
+  // Vertical glowing core columns
+  for (let x = 0; x < 32; x++) {
+    const distFromCenter = Math.abs(x - 15.5) / 16;
+    const alpha = Math.max(0.18, 0.88 - distFromCenter * 0.65);
+    ctx.fillStyle = x % 4 === 0 ? `rgba(255, 255, 255, ${alpha})` : `rgba(103, 232, 249, ${alpha})`;
+    ctx.fillRect(x, 0, 1, 64);
+  }
+
+  // Horizontal rising energy bands (pixel rings)
+  for (let y = 0; y < 64; y += 8) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+    ctx.fillRect(2, y, 28, 2);
+    ctx.fillStyle = 'rgba(52, 211, 153, 0.75)';
+    ctx.fillRect(0, y + 2, 32, 2);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.repeat.set(1, 5);
+  return tex;
+}
+
+/**
+ * 6. Authentic 16x16 End Portal Frame Top & Side Pixel-Art Textures
+ */
+function createEndPortalFrameTopTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d')!;
+
+  // End Stone cream base
+  ctx.fillStyle = '#dfd9a3';
+  ctx.fillRect(0, 0, 16, 16);
+
+  // Outer ornamental dark teal-green border
+  ctx.fillStyle = '#1b4d3e';
+  ctx.fillRect(0, 0, 16, 2);
+  ctx.fillRect(0, 14, 16, 2);
+  ctx.fillRect(0, 0, 2, 16);
+  ctx.fillRect(14, 0, 2, 16);
+
+  // Corner emerald accents
+  ctx.fillStyle = '#45937a';
+  ctx.fillRect(1, 1, 3, 3);
+  ctx.fillRect(12, 1, 3, 3);
+  ctx.fillRect(1, 12, 3, 3);
+  ctx.fillRect(12, 12, 3, 3);
+
+  // Center socket ring for Eye of Ender
+  ctx.fillStyle = '#0f2922';
+  ctx.fillRect(4, 4, 8, 8);
+  ctx.fillStyle = '#2c6e58';
+  ctx.fillRect(5, 5, 6, 6);
+
+  return finalizePixelTexture(canvas);
+}
+
+function createEndPortalFrameSideTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d')!;
+
+  // End stone lower body
+  ctx.fillStyle = '#d5ce95';
+  ctx.fillRect(0, 0, 16, 16);
+
+  // Top dark green cap
+  ctx.fillStyle = '#1b4d3e';
+  ctx.fillRect(0, 0, 16, 4);
+
+  // Ancient teal rune pillars hanging down the side
+  ctx.fillStyle = '#2c6e58';
+  for (let x = 2; x <= 12; x += 5) {
+    ctx.fillRect(x, 4, 3, 8);
+    ctx.fillStyle = '#45937a';
+    ctx.fillRect(x + 1, 5, 1, 6);
+    ctx.fillStyle = '#2c6e58';
+  }
+
+  // Bottom End stone cobble pixels
+  ctx.fillStyle = '#b8b078';
+  ctx.fillRect(0, 13, 16, 3);
+
+  return finalizePixelTexture(canvas);
+}
+
+function createEyeOfEnderTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 16;
+  canvas.height = 16;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#15803d';
+  ctx.fillRect(0, 0, 16, 16);
+  ctx.fillStyle = '#22c55e';
+  ctx.fillRect(2, 2, 12, 12);
+  ctx.fillStyle = '#86efac';
+  ctx.fillRect(4, 4, 8, 8);
+  // Slit pupil
+  ctx.fillStyle = '#052e16';
+  ctx.fillRect(7, 3, 2, 10);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(6, 4, 1, 2);
+
+  return finalizePixelTexture(canvas);
+}
+
+/**
+ * 7. Cosmic Starfield Void Texture for the 3x3 interior of the End Portal
+ */
+function createEndPortalVoidTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#05050a';
+  ctx.fillRect(0, 0, 64, 64);
+
+  const starColors = ['#38bdf8', '#c084fc', '#ffffff', '#34d399', '#818cf8'];
+  for (let i = 0; i < 55; i++) {
+    ctx.fillStyle = starColors[i % starColors.length];
+    const sx = (i * 19 + 7) % 62;
+    const sy = (i * 31 + 11) % 62;
+    const size = i % 5 === 0 ? 2 : 1;
+    ctx.fillRect(sx, sy, size, size);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  return tex;
+}
+
+/**
+ * 8. Authentic 16x16 Swirling Purple Nether Portal Vortex Texture
+ */
+function createNetherPortalVortexTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 32;
+  canvas.height = 32;
+  const ctx = canvas.getContext('2d')!;
+
+  const colors = ['#581c87', '#7e22ce', '#9333ea', '#c084fc', '#f0abfc'];
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      const dx = x - 16;
+      const dy = y - 16;
+      const r = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+      const swirl = Math.floor(r * 0.65 + angle * 2.5 + 20) % colors.length;
+      ctx.fillStyle = colors[Math.abs(swirl)];
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
   return tex;
 }
 
 export class IslandBoard3D {
   public readonly root = new THREE.Group();
+  private tileContainerGroups: THREE.Group[] = [];
   private tileMeshes: THREE.Mesh[] = [];
   private buildingGroups = new Map<number, THREE.Group>();
   private crownMeshes: THREE.Mesh[] = [];
@@ -180,21 +483,34 @@ export class IslandBoard3D {
   private waterfallDrops: THREE.Mesh[] = [];
   private waterMesh!: THREE.Mesh;
   private beaconBeam?: THREE.Mesh;
-  private endPortalSurface?: THREE.Mesh;
+  private endPortalVoidTextures: THREE.CanvasTexture[] = [];
+  private netherPortalTextures: THREE.CanvasTexture[] = [];
   private particles: ParticleSystem3D;
 
-  // Target Destination Beacon + 9 Floating Iron Blocks (3x3 Grid)
+  // Target Destination Beacon + 9 Floating Iron Blocks + Multi-Layer Animated Beam
   private targetBeaconGroup?: THREE.Group;
   private targetIronBaseGroup?: THREE.Group;
-  private targetLightColumn?: THREE.Mesh;
+  private targetBeaconStarCore?: THREE.Mesh;
+  private targetBeamInner?: THREE.Mesh;
+  private targetBeamOuter?: THREE.Mesh;
+  private beaconBeamTexture: THREE.CanvasTexture;
   private ironBlockTexture: THREE.CanvasTexture;
+  private obsidianTexture: THREE.CanvasTexture;
+  private beaconGlassTexture: THREE.CanvasTexture;
+  private beaconCoreTexture: THREE.CanvasTexture;
 
-  // Highlight ring when clicking/inspecting any tile
-  private selectedTileFrame?: THREE.Mesh;
+  // Currently elevated & camera-tilted tile index
+  private elevatedTileIndex: number | null = null;
+  private elevatedGlowBase?: THREE.Mesh;
 
   constructor(scene: THREE.Scene, particles: ParticleSystem3D) {
     this.particles = particles;
     this.ironBlockTexture = createMinecraftIronBlockTexture();
+    this.obsidianTexture = createMinecraftObsidianTexture();
+    this.beaconGlassTexture = createMinecraftBeaconGlassTexture();
+    this.beaconCoreTexture = createMinecraftBeaconCoreTexture();
+    this.beaconBeamTexture = createMinecraftBeaconBeamTexture();
+
     this.root.name = 'FloatingVoxelIsland40';
     scene.add(this.root);
 
@@ -205,12 +521,9 @@ export class IslandBoard3D {
     this.build40OutwardAngledTiles();
     this.buildSatelliteMiniIslands();
     this.buildFloatingClouds();
-    this.initSelectionAndTargetBeacon();
+    this.initTargetBeaconWithAuthenticTextures();
   }
 
-  /**
-   * Expanded 260x260 Voxel Ocean so the camera never sees the edge of the water block!
-   */
   private buildRichPastelOceanAndBoats(): void {
     const waterGeo = new THREE.BoxGeometry(260, 1.8, 260, 32, 1, 32);
     const waterMat = new THREE.MeshStandardMaterial({
@@ -231,7 +544,6 @@ export class IslandBoard3D {
     deepMesh.position.set(0, -2.8, 0);
     this.root.add(deepMesh);
 
-    // White voxel shoreline foam around the 40-tile island
     const foamMat = new THREE.MeshBasicMaterial({
       color: '#ffffff',
       transparent: true,
@@ -249,7 +561,6 @@ export class IslandBoard3D {
       this.root.add(f1, f2, f3, f4);
     }
 
-    // 8 Cute Voxel Wooden Sailboats floating across the expanded sea
     const boatPositions = [
       { x: -17, z: 15, ry: 0.6 },
       { x: 18, z: -15, ry: -2.2 },
@@ -268,10 +579,6 @@ export class IslandBoard3D {
     }
   }
 
-  /**
-   * Builds 4 Monumental Minecraft Voxel Perimeter Walls & Cliff Bastions surrounding the ocean
-   * on the North, South, East, and West horizons so the world feels like a grand enclosed kingdom!
-   */
   private buildFourSurroundingArenaWalls(): void {
     const wallsGroup = new THREE.Group();
     wallsGroup.name = 'FourSurroundingVoxelWalls';
@@ -299,7 +606,6 @@ export class IslandBoard3D {
       const side = new THREE.Group();
       side.rotation.y = rotY;
 
-      // 1. Lower Deepslate Foundation Wall
       const baseWall = new THREE.Mesh(
         new THREE.BoxGeometry(wallSpan, 9, 8.5),
         deepslateMat
@@ -309,7 +615,6 @@ export class IslandBoard3D {
       baseWall.castShadow = true;
       side.add(baseWall);
 
-      // 2. Upper Stone Brick Rampart Wall
       const upperWall = new THREE.Mesh(
         new THREE.BoxGeometry(wallSpan - 4, 7.5, 6.2),
         stoneBrickMat
@@ -319,7 +624,6 @@ export class IslandBoard3D {
       upperWall.castShadow = true;
       side.add(upperWall);
 
-      // 3. Lush Green Moss & Grass Terrace on top of the wall
       const terrace = new THREE.Mesh(
         new THREE.BoxGeometry(wallSpan - 4, 1.2, 6.6),
         grassTopMat
@@ -327,7 +631,6 @@ export class IslandBoard3D {
       terrace.position.set(0, 14.3, -wallDist - 0.5);
       side.add(terrace);
 
-      // 4. Crenellated Battlements (Merlons) + Glowing Lanterns along the wall crest
       for (let x = -56; x <= 56; x += 8) {
         const merlon = new THREE.Mesh(
           new THREE.BoxGeometry(3.8, 2.2, 2.2),
@@ -346,7 +649,6 @@ export class IslandBoard3D {
         }
       }
 
-      // 5. Center Grand Royal Archway & Twin Waterfall Bastions on each wall
       const centerFort = new THREE.Mesh(
         new THREE.BoxGeometry(22, 19, 10),
         stoneBrickMat
@@ -368,7 +670,6 @@ export class IslandBoard3D {
       archPortal.position.set(0, 6.5, -wallDist + 5.6);
       side.add(archPortal);
 
-      // Twin Waterfalls pouring from the wall into the sea
       for (const wx of [-24, 24]) {
         const wf = new THREE.Mesh(
           new THREE.BoxGeometry(4.2, 15.5, 1.2),
@@ -378,7 +679,6 @@ export class IslandBoard3D {
         side.add(wf);
       }
 
-      // Trees perched along the upper wall terrace
       const wallTreeColors = ['#22c55e', '#f472b6', '#16a34a', '#facc15', '#38bdf8'];
       for (let i = -48; i <= 48; i += 16) {
         if (Math.abs(i) < 12) continue;
@@ -394,7 +694,6 @@ export class IslandBoard3D {
       return side;
     };
 
-    // Add North (0), East (-PI/2), South (PI), West (PI/2) Perimeter Walls
     wallsGroup.add(
       buildWallSide(0),
       buildWallSide(Math.PI / 2),
@@ -402,7 +701,6 @@ export class IslandBoard3D {
       buildWallSide(-Math.PI / 2)
     );
 
-    // 4 Monumental Corner Citadel Watchtowers at (±66, ±66)
     const corners = [
       [-wallDist, -wallDist],
       [wallDist, -wallDist],
@@ -506,7 +804,12 @@ export class IslandBoard3D {
     for (const pt of pyramidTiers) {
       const tier = new THREE.Mesh(
         new THREE.BoxGeometry(pt.size, 0.18, pt.size),
-        new THREE.MeshStandardMaterial({ color: pt.color, roughness: 0.45, metalness: 0.15 })
+        new THREE.MeshStandardMaterial({
+          map: this.ironBlockTexture,
+          color: pt.color,
+          roughness: 0.35,
+          metalness: 0.35
+        })
       );
       tier.position.set(0, pt.y, 0);
       tier.receiveShadow = true;
@@ -515,9 +818,10 @@ export class IslandBoard3D {
     }
 
     const beaconMat = new THREE.MeshBasicMaterial({
+      map: this.beaconBeamTexture,
       color: '#34d399',
       transparent: true,
-      opacity: 0.18
+      opacity: 0.25
     });
     this.beaconBeam = new THREE.Mesh(new THREE.BoxGeometry(0.75, 4.5, 0.75), beaconMat);
     this.beaconBeam.position.set(0, 2.6, 0);
@@ -552,13 +856,19 @@ export class IslandBoard3D {
       this.root.add(drop);
     }
 
+    // Monumental Nether Portal Shrine on the East inner courtyard facing the Nether biome (#31-#34)!
+    const courtyardNetherShrine = this.createNetherPortalLandmark3D();
+    courtyardNetherShrine.scale.setScalar(1.35);
+    courtyardNetherShrine.position.set(7.6, 0.4, -1.8);
+    courtyardNetherShrine.rotation.y = Math.PI / 2;
+    this.root.add(courtyardNetherShrine);
+
     const treeSpecs = [
       { x: -6.8, z: -6.8, leaf: '#22c55e', trunk: '#78350f', scale: 1.25 },
       { x: 6.8, z: -6.8, leaf: '#f472b6', trunk: '#57534e', scale: 1.3 },
       { x: -6.8, z: 6.8, leaf: '#f472b6', trunk: '#57534e', scale: 1.25 },
       { x: 6.8, z: 6.8, leaf: '#16a34a', trunk: '#78350f', scale: 1.2 },
       { x: -7.5, z: 0, leaf: '#84cc16', trunk: '#78350f', scale: 1.05 },
-      { x: 7.5, z: 0, leaf: '#f9a8d4', trunk: '#57534e', scale: 1.05 },
       { x: 0, z: -7.5, leaf: '#38bdf8', trunk: '#475569', scale: 1.1 },
       { x: -4.2, z: -4.2, leaf: '#facc15', trunk: '#78350f', scale: 0.95 }
     ];
@@ -625,10 +935,8 @@ export class IslandBoard3D {
   }
 
   /**
-   * Redesigned 40 Beveled 3D Monolith Tiles (v3.0):
-   * - Removes the secondary vertical signboard that obstructed views when orbiting.
-   * - Builds a sleek 2-tier beveled stone + biome monolith pedestal with outward-facing
-   *   Vietnamese typography and glowing outer rim strip.
+   * Builds all 40 tiles wrapped in individual `tileContainerGroups[i]` so any clicked tile
+   * can smoothly elevate (`y = +0.92`) and tilt diagonally (`26.5°`) toward the camera!
    */
   private build40OutwardAngledTiles(): void {
     const pedestalGeo = new THREE.BoxGeometry(2.16, 0.24, 2.16);
@@ -651,16 +959,22 @@ export class IslandBoard3D {
       const worldZ = tile.gridZ * TILE_SPACING;
       const isCorner = tile.index % 10 === 0;
 
+      const tileContainer = new THREE.Group();
+      tileContainer.position.set(worldX, 0, worldZ);
+      tileContainer.userData = { tileIndex: tile.index };
+      this.tileContainerGroups[tile.index] = tileContainer;
+      this.root.add(tileContainer);
+
       // 1. Lower Beveled Stone/Gold Pedestal Base
       const pedestalMesh = new THREE.Mesh(
         pedestalGeo,
         isCorner ? pedestalGoldMat : pedestalDarkMat
       );
-      pedestalMesh.position.set(worldX, 0.12, worldZ);
+      pedestalMesh.position.set(0, 0.12, 0);
       pedestalMesh.receiveShadow = true;
       pedestalMesh.castShadow = true;
       pedestalMesh.userData = { tileIndex: tile.index };
-      this.root.add(pedestalMesh);
+      tileContainer.add(pedestalMesh);
 
       // 2. Upper Monolith Tile Block with High-DPI Outward-Facing Texture
       const topTex = createHighResTileTexture(tile, 1, null);
@@ -677,7 +991,7 @@ export class IslandBoard3D {
       const materials = [sideMat, sideMat, topMat, sideMat, sideMat, sideMat];
       const mesh = new THREE.Mesh(tileGeo, materials);
 
-      mesh.position.set(worldX, 0.38, worldZ);
+      mesh.position.set(0, 0.38, 0);
       mesh.rotation.y = tile.outwardRotationY;
       mesh.receiveShadow = true;
       mesh.castShadow = true;
@@ -694,12 +1008,12 @@ export class IslandBoard3D {
       rimStrip.userData = { tileIndex: tile.index };
       mesh.add(rimStrip);
 
-      this.root.add(mesh);
+      tileContainer.add(mesh);
       this.tileMeshes[tile.index] = mesh;
 
-      // 4. Add 3D tilted landmarks on special tiles (oriented outward with the row!)
+      // 4. Add 3D landmarks inside `tileContainer` so they rise & tilt with the tile!
       const landmarkGroup = new THREE.Group();
-      landmarkGroup.position.set(worldX, 0.59, worldZ);
+      landmarkGroup.position.set(0, 0.59, 0);
       landmarkGroup.rotation.y = tile.outwardRotationY;
 
       if (tile.type === 'CHEST') {
@@ -707,141 +1021,238 @@ export class IslandBoard3D {
         chest.position.set(0, 0, -0.75);
         chest.rotation.x = 0.16;
         landmarkGroup.add(chest);
-        this.root.add(landmarkGroup);
+        tileContainer.add(landmarkGroup);
       } else if (tile.type === 'END_PORTAL') {
         const portal = this.createEndPortalLandmark3D();
-        portal.position.set(0, 0, -0.65);
-        portal.rotation.x = 0.18;
+        portal.position.set(0, 0, -0.58);
+        portal.rotation.x = 0.16;
         landmarkGroup.add(portal);
-        this.root.add(landmarkGroup);
+        tileContainer.add(landmarkGroup);
+      } else if (tile.type === 'NETHER_PORTAL') {
+        const netherPortal = this.createNetherPortalLandmark3D();
+        netherPortal.position.set(0, 0, -0.68);
+        netherPortal.rotation.x = 0.12;
+        landmarkGroup.add(netherPortal);
+        tileContainer.add(landmarkGroup);
       } else if (tile.type === 'DESERTED_ISLAND') {
         const palm = this.createVoxelTree('#84cc16', '#a16207');
         palm.scale.setScalar(0.72);
         palm.position.set(0, 0, -0.68);
         palm.rotation.x = 0.15;
         landmarkGroup.add(palm);
-        this.root.add(landmarkGroup);
+        tileContainer.add(landmarkGroup);
       } else if (tile.type === 'FESTIVAL') {
         const arch = this.createFestivalArch3D();
         arch.position.set(0, 0, -0.65);
         arch.rotation.x = 0.16;
         landmarkGroup.add(arch);
-        this.root.add(landmarkGroup);
+        tileContainer.add(landmarkGroup);
       }
     }
+
+    // Soft glowing shadow/halo underneath whichever tile is currently elevated
+    this.elevatedGlowBase = new THREE.Mesh(
+      new THREE.BoxGeometry(2.35, 0.08, 2.35),
+      new THREE.MeshBasicMaterial({
+        color: '#34d399',
+        transparent: true,
+        opacity: 0.45
+      })
+    );
+    this.elevatedGlowBase.visible = false;
+    this.root.add(this.elevatedGlowBase);
   }
 
   /**
-   * Initializes the 3D Selection Frame & the Target Destination Beacon with 9 Floating Iron Blocks!
+   * Elevates the clicked tile (+0.92 Y) and tilts it diagonally (~26.5°) directly toward the camera!
+   * Passing `null` smoothly lowers the previously elevated tile back to ground level.
    */
-  private initSelectionAndTargetBeacon(): void {
-    // 1. Tile Inspection Highlight Frame
-    const frameGeo = new THREE.BoxGeometry(2.26, 0.16, 2.26);
-    const frameMat = new THREE.MeshBasicMaterial({
-      color: '#fde047',
-      transparent: true,
-      opacity: 0.85
-    });
-    this.selectedTileFrame = new THREE.Mesh(frameGeo, frameMat);
-    this.selectedTileFrame.visible = false;
-    this.root.add(this.selectedTileFrame);
+  public highlightTile(tileIndex: number | null, cameraWorldPos?: THREE.Vector3): void {
+    // 1. Lower previously elevated tile if any
+    if (this.elevatedTileIndex !== null && this.elevatedTileIndex !== tileIndex) {
+      const prevContainer = this.tileContainerGroups[this.elevatedTileIndex];
+      if (prevContainer) {
+        gsap.killTweensOf(prevContainer.position);
+        gsap.killTweensOf(prevContainer.rotation);
+        gsap.killTweensOf(prevContainer.scale);
+        gsap.to(prevContainer.position, { y: 0, duration: 0.38, ease: 'power2.out' });
+        gsap.to(prevContainer.rotation, { x: 0, z: 0, duration: 0.38, ease: 'power2.out' });
+        gsap.to(prevContainer.scale, { x: 1, y: 1, z: 1, duration: 0.38, ease: 'power2.out' });
+      }
+    }
 
-    // 2. Target Destination Beacon + 9 Floating Iron Blocks (3x3 Grid)
+    if (tileIndex === null) {
+      this.elevatedTileIndex = null;
+      if (this.elevatedGlowBase) {
+        this.elevatedGlowBase.visible = false;
+      }
+      return;
+    }
+
+    const idx = ((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    this.elevatedTileIndex = idx;
+    const container = this.tileContainerGroups[idx];
+    const tile = BOARD_TILES[idx];
+    if (!container) return;
+
+    const worldX = tile.gridX * TILE_SPACING;
+    const worldZ = tile.gridZ * TILE_SPACING;
+
+    // Calculate horizontal vector from tile to camera (or outward normal if camera pos not passed)
+    let dirX = Math.sin(tile.outwardRotationY);
+    let dirZ = Math.cos(tile.outwardRotationY);
+
+    if (cameraWorldPos) {
+      const dx = cameraWorldPos.x - worldX;
+      const dz = cameraWorldPos.z - worldZ;
+      const len = Math.hypot(dx, dz);
+      if (len > 0.01) {
+        dirX = dx / len;
+        dirZ = dz / len;
+      }
+    }
+
+    // Tilt top face by ~27 degrees (0.47 rad) toward (dirX, dirZ)
+    const tiltRad = 0.47;
+    const targetRotX = dirZ * tiltRad;
+    const targetRotZ = -dirX * tiltRad;
+
+    if (this.elevatedGlowBase) {
+      this.elevatedGlowBase.position.set(worldX, 0.08, worldZ);
+      this.elevatedGlowBase.visible = true;
+    }
+
+    gsap.killTweensOf(container.position);
+    gsap.killTweensOf(container.rotation);
+    gsap.killTweensOf(container.scale);
+
+    gsap.to(container.position, {
+      y: 0.94,
+      duration: 0.48,
+      ease: 'back.out(1.8)'
+    });
+    gsap.to(container.rotation, {
+      x: targetRotX,
+      z: targetRotZ,
+      duration: 0.48,
+      ease: 'back.out(1.6)'
+    });
+    gsap.to(container.scale, {
+      x: 1.08,
+      y: 1.08,
+      z: 1.08,
+      duration: 0.45,
+      ease: 'back.out(1.8)'
+    });
+  }
+
+  /**
+   * Initializes the Authentic Minecraft Target Destination Beacon:
+   * - 9 Iron Blocks (3x3 Grid) with 16x16 pixel-art Iron Block texture floating higher at y = 2.75
+   * - Authentic Minecraft Beacon Block on top (y = 3.22):
+   *   + 3-pixel Obsidian Base Pedestal
+   *   + Rotating Glowing Nether Star Core inside
+   *   + 16x16 Pixel-Art Glass Shell outside
+   * - Dual Counter-Rotating Scrolling Energy Light Beam shooting 24 units into the sky!
+   */
+  private initTargetBeaconWithAuthenticTextures(): void {
     this.targetBeaconGroup = new THREE.Group();
-    this.targetBeaconGroup.name = 'TargetTileBeacon9IronBlocks';
+    this.targetBeaconGroup.name = 'TargetTileAuthenticMinecraftBeacon';
     this.targetBeaconGroup.visible = false;
 
     this.targetIronBaseGroup = new THREE.Group();
-    // 9 Iron Blocks arranged in a 3x3 Minecraft Beacon Pyramid base hovering at y = 2.05
-    const ironGeo = new THREE.BoxGeometry(0.46, 0.32, 0.46);
+
+    // 1. 9 Iron Blocks (3x3 Grid) with authentic 16x16 Iron Block pixel texture at y = 2.75
+    const ironGeo = new THREE.BoxGeometry(0.48, 0.36, 0.48);
     const ironMat = new THREE.MeshStandardMaterial({
       map: this.ironBlockTexture,
-      color: '#f8fafc',
-      metalness: 0.65,
-      roughness: 0.25,
-      emissive: '#cbd5e1',
-      emissiveIntensity: 0.18
+      roughness: 0.28,
+      metalness: 0.55
     });
 
-    const step = 0.49;
+    const step = 0.5;
     for (let gx = -1; gx <= 1; gx++) {
       for (let gz = -1; gz <= 1; gz++) {
         const ironBlock = new THREE.Mesh(ironGeo, ironMat);
-        ironBlock.position.set(gx * step, 2.05, gz * step);
+        ironBlock.position.set(gx * step, 2.75, gz * step);
         ironBlock.castShadow = true;
         ironBlock.receiveShadow = true;
         this.targetIronBaseGroup.add(ironBlock);
       }
     }
 
-    // Central Minecraft Beacon Block sitting atop the 9 Iron Blocks
-    const beaconGlass = new THREE.Mesh(
-      new THREE.BoxGeometry(0.44, 0.44, 0.44),
+    // 2. Authentic Minecraft Beacon Block sitting at y = 3.20 atop the center Iron Block
+    const beaconUnitGroup = new THREE.Group();
+    beaconUnitGroup.position.set(0, 2.93, 0);
+
+    // 2a. Obsidian Base Slab (bottom 3/16 of the Beacon block)
+    const obsidianBase = new THREE.Mesh(
+      new THREE.BoxGeometry(0.46, 0.11, 0.46),
       new THREE.MeshStandardMaterial({
-        color: '#67e8f9',
-        transparent: true,
-        opacity: 0.78,
-        roughness: 0.1
+        map: this.obsidianTexture,
+        roughness: 0.65
       })
     );
-    beaconGlass.position.set(0, 2.42, 0);
+    obsidianBase.position.set(0, 0.055, 0);
+    beaconUnitGroup.add(obsidianBase);
 
-    const beaconStarCore = new THREE.Mesh(
-      new THREE.BoxGeometry(0.26, 0.26, 0.26),
-      new THREE.MeshBasicMaterial({ color: '#ffffff' })
+    // 2b. Glowing Nether Star Crystal Core rotating inside the glass shell
+    this.targetBeaconStarCore = new THREE.Mesh(
+      new THREE.BoxGeometry(0.28, 0.28, 0.28),
+      new THREE.MeshBasicMaterial({
+        map: this.beaconCoreTexture
+      })
     );
-    beaconStarCore.position.set(0, 2.42, 0);
-    this.targetIronBaseGroup.add(beaconGlass, beaconStarCore);
+    this.targetBeaconStarCore.position.set(0, 0.27, 0);
+    beaconUnitGroup.add(this.targetBeaconStarCore);
 
+    // 2c. Outer 16x16 Pixel-Art Glass Shell
+    const glassShell = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.5, 0.5),
+      new THREE.MeshStandardMaterial({
+        map: this.beaconGlassTexture,
+        transparent: true,
+        alphaTest: 0.05,
+        opacity: 0.92,
+        roughness: 0.1,
+        depthWrite: false
+      })
+    );
+    glassShell.position.set(0, 0.25, 0);
+    beaconUnitGroup.add(glassShell);
+
+    this.targetIronBaseGroup.add(beaconUnitGroup);
     this.targetBeaconGroup.add(this.targetIronBaseGroup);
 
-    // Vertical Sky Beacon Light Column shooting straight through the 9 Iron Blocks onto the target tile!
-    const beamGeo = new THREE.BoxGeometry(0.42, 16.0, 0.42);
-    const beamMat = new THREE.MeshBasicMaterial({
+    // 3. Multi-Layer Animated Minecraft Light Beam (Tall: 24 units high + lower spotlight to tile)
+    const innerBeamGeo = new THREE.BoxGeometry(0.32, 24.0, 0.32);
+    const innerBeamMat = new THREE.MeshBasicMaterial({
+      map: this.beaconBeamTexture,
+      color: '#ecfeff',
+      transparent: true,
+      opacity: 0.88,
+      depthWrite: false
+    });
+    this.targetBeamInner = new THREE.Mesh(innerBeamGeo, innerBeamMat);
+    this.targetBeamInner.position.set(0, 12.6, 0);
+    this.targetBeaconGroup.add(this.targetBeamInner);
+
+    // Outer translucent counter-rotating square aura tube (just like vanilla Minecraft Beacon!)
+    const outerBeamGeo = new THREE.BoxGeometry(0.58, 24.0, 0.58);
+    const outerBeamMat = new THREE.MeshBasicMaterial({
+      map: this.beaconBeamTexture,
       color: '#34d399',
       transparent: true,
-      opacity: 0.46
+      opacity: 0.42,
+      depthWrite: false
     });
-    this.targetLightColumn = new THREE.Mesh(beamGeo, beamMat);
-    this.targetLightColumn.position.set(0, 8.6, 0);
-    this.targetBeaconGroup.add(this.targetLightColumn);
-
-    // Lower beam spotlight hitting the tile surface below the 9 Iron Blocks
-    const lowerBeam = new THREE.Mesh(
-      new THREE.BoxGeometry(0.65, 1.45, 0.65),
-      new THREE.MeshBasicMaterial({
-        color: '#67e8f9',
-        transparent: true,
-        opacity: 0.38
-      })
-    );
-    lowerBeam.position.set(0, 1.25, 0);
-    this.targetBeaconGroup.add(lowerBeam);
+    this.targetBeamOuter = new THREE.Mesh(outerBeamGeo, outerBeamMat);
+    this.targetBeamOuter.position.set(0, 12.6, 0);
+    this.targetBeaconGroup.add(this.targetBeamOuter);
 
     this.root.add(this.targetBeaconGroup);
   }
 
-  /**
-   * Highlights the clicked/inspected tile with a glowing golden ring.
-   */
-  public highlightTile(tileIndex: number | null): void {
-    if (!this.selectedTileFrame) return;
-    if (tileIndex === null) {
-      this.selectedTileFrame.visible = false;
-      return;
-    }
-    const tile = BOARD_TILES[((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
-    this.selectedTileFrame.position.set(
-      tile.gridX * TILE_SPACING,
-      0.55,
-      tile.gridZ * TILE_SPACING
-    );
-    this.selectedTileFrame.visible = true;
-  }
-
-  /**
-   * Spawns the 3D Beacon Light Column + 9 Floating Iron Blocks (3x3 Grid) above the destination tile!
-   */
   public showTargetTileBeacon(tileIndex: number): void {
     if (!this.targetBeaconGroup) return;
     const tile = BOARD_TILES[((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
@@ -948,36 +1359,143 @@ export class IslandBoard3D {
     return g;
   }
 
+  /**
+   * Authentic Minecraft End Portal with 12 End Portal Frame Blocks (3 per side, hollow corners),
+   * 12 socketed Eyes of Ender, and a 3x3 Starfield Cosmic Void interior!
+   */
   private createEndPortalLandmark3D(): THREE.Group {
     const g = new THREE.Group();
-    const frameMat = new THREE.MeshStandardMaterial({ color: '#0f766e', roughness: 0.5 });
+
+    const frameTopTex = createEndPortalFrameTopTexture();
+    const frameSideTex = createEndPortalFrameSideTexture();
+    const eyeTex = createEyeOfEnderTexture();
+    const voidTex = createEndPortalVoidTexture();
+    this.endPortalVoidTextures.push(voidTex);
+
+    const topMat = new THREE.MeshStandardMaterial({ map: frameTopTex, roughness: 0.5 });
+    const sideMat = new THREE.MeshStandardMaterial({ map: frameSideTex, roughness: 0.6 });
+    const bottomMat = new THREE.MeshStandardMaterial({ color: '#dfd9a3', roughness: 0.7 });
+    const frameMaterials = [sideMat, sideMat, topMat, bottomMat, sideMat, sideMat];
+
     const eyeMat = new THREE.MeshStandardMaterial({
-      color: '#4ade80',
-      emissive: '#22c55e',
-      emissiveIntensity: 0.6
+      map: eyeTex,
+      emissive: '#10b981',
+      emissiveIntensity: 0.35,
+      roughness: 0.25
     });
 
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.26, 1.1), frameMat);
-    frame.position.y = 0.13;
-    g.add(frame);
+    // Block unit size s = 0.25 so the 5x5 ring fits handsomely on the tile (5 * 0.25 = 1.25 width)
+    const s = 0.24;
+    const frameGeo = new THREE.BoxGeometry(s * 0.96, s * 0.82, s * 0.96);
+    const eyeGeo = new THREE.BoxGeometry(s * 0.52, s * 0.32, s * 0.52);
 
-    const corners = [
-      [-0.36, 0.28, -0.36],
-      [0.36, 0.28, -0.36],
-      [-0.36, 0.28, 0.36],
-      [0.36, 0.28, 0.36]
+    // 12 End Portal Frame coordinates in a 5x5 ring (excluding the 4 corners ±2, ±2):
+    const ringCoords: Array<[number, number]> = [
+      // North side (3 frames)
+      [-1, -2],
+      [0, -2],
+      [1, -2],
+      // South side (3 frames)
+      [-1, 2],
+      [0, 2],
+      [1, 2],
+      // West side (3 frames)
+      [-2, -1],
+      [-2, 0],
+      [-2, 1],
+      // East side (3 frames)
+      [2, -1],
+      [2, 0],
+      [2, 1]
     ];
-    for (const [cx, cy, cz] of corners) {
-      const eye = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.18), eyeMat);
-      eye.position.set(cx, cy, cz);
-      g.add(eye);
+
+    for (const [gx, gz] of ringCoords) {
+      const frameBlock = new THREE.Mesh(frameGeo, frameMaterials);
+      frameBlock.position.set(gx * s, s * 0.41, gz * s);
+      frameBlock.castShadow = true;
+      frameBlock.receiveShadow = true;
+      g.add(frameBlock);
+
+      // Eye of Ender socketed on top of each of the 12 frames
+      const eyeBlock = new THREE.Mesh(eyeGeo, eyeMat);
+      eyeBlock.position.set(gx * s, s * 0.95, gz * s);
+      g.add(eyeBlock);
     }
 
-    const portalMat = new THREE.MeshBasicMaterial({ color: '#a855f7' });
-    const portalMesh = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.28, 0.78), portalMat);
-    portalMesh.position.y = 0.16;
-    this.endPortalSurface = portalMesh;
-    g.add(portalMesh);
+    // 3x3 Cosmic Starfield Void inside the 12 frames
+    const voidSurface = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 3.1, s * 0.45, s * 3.1),
+      new THREE.MeshBasicMaterial({ map: voidTex })
+    );
+    voidSurface.position.set(0, s * 0.38, 0);
+    g.add(voidSurface);
+
+    return g;
+  }
+
+  /**
+   * Authentic Minecraft Nether Portal:
+   * - Vertical 4-wide x 5-tall ring of 14 Obsidian Blocks with 16x16 pixel-art Obsidian texture
+   * - 2-wide x 3-tall Swirling Purple Nether Portal Vortex membrane inside
+   * - Glowing Netherrack & Magma base blocks
+   */
+  private createNetherPortalLandmark3D(): THREE.Group {
+    const g = new THREE.Group();
+
+    const obsidianMat = new THREE.MeshStandardMaterial({
+      map: this.obsidianTexture,
+      roughness: 0.6,
+      metalness: 0.2
+    });
+
+    const vortexTex = createNetherPortalVortexTexture();
+    this.netherPortalTextures.push(vortexTex);
+
+    const vortexMat = new THREE.MeshBasicMaterial({
+      map: vortexTex,
+      color: '#e879f9',
+      transparent: true,
+      opacity: 0.86,
+      side: THREE.DoubleSide
+    });
+
+    const netherrackMat = new THREE.MeshStandardMaterial({
+      color: '#7f1d1d',
+      roughness: 0.85
+    });
+    const magmaMat = new THREE.MeshBasicMaterial({ color: '#f97316' });
+
+    // Base Netherrack & Magma blocks
+    const baseSlab = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.12, 0.48), netherrackMat);
+    baseSlab.position.set(0, 0.06, 0);
+    const magma1 = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.24), magmaMat);
+    magma1.position.set(-0.42, 0.08, 0.18);
+    const magma2 = magma1.clone();
+    magma2.position.set(0.42, 0.08, 0.18);
+    g.add(baseSlab, magma1, magma2);
+
+    // 4 wide x 5 tall ring = 14 individual Obsidian blocks
+    const b = 0.24;
+    const obsGeo = new THREE.BoxGeometry(b * 0.98, b * 0.98, b * 0.98);
+    for (let ix = 0; ix < 4; ix++) {
+      for (let iy = 0; iy < 5; iy++) {
+        const isEdge = ix === 0 || ix === 3 || iy === 0 || iy === 4;
+        if (!isEdge) continue;
+        const obs = new THREE.Mesh(obsGeo, obsidianMat);
+        obs.position.set((ix - 1.5) * b, 0.12 + (iy + 0.5) * b, 0);
+        obs.castShadow = true;
+        obs.receiveShadow = true;
+        g.add(obs);
+      }
+    }
+
+    // 2 wide x 3 tall Swirling Purple Nether Portal membrane inside the Obsidian ring
+    const portalPane = new THREE.Mesh(
+      new THREE.BoxGeometry(b * 2.02, b * 3.02, b * 0.36),
+      vortexMat
+    );
+    portalPane.position.set(0, 0.12 + 2.5 * b, 0);
+    g.add(portalPane);
 
     return g;
   }
@@ -1029,6 +1547,7 @@ export class IslandBoard3D {
   ): void {
     const tile = BOARD_TILES[tileIndex];
     const tileMesh = this.tileMeshes[tileIndex];
+    const tileContainer = this.tileContainerGroups[tileIndex];
     if (tileMesh && Array.isArray(tileMesh.material)) {
       const topMat = tileMesh.material[2] as THREE.MeshStandardMaterial;
       topMat.map?.dispose();
@@ -1037,23 +1556,22 @@ export class IslandBoard3D {
     }
 
     const prev = this.buildingGroups.get(tileIndex);
-    if (prev) {
-      this.root.remove(prev);
+    if (prev && tileContainer) {
+      tileContainer.remove(prev);
       this.buildingGroups.delete(tileIndex);
     }
 
-    if (level <= 0) return;
+    if (level <= 0 || !tileContainer) return;
 
     const bGroup = this.createBuildingMeshForLevel(level, ownerColorHex, tile.colorHex);
-    const worldX = tile.gridX * TILE_SPACING;
-    const worldZ = tile.gridZ * TILE_SPACING;
-
-    bGroup.position.set(worldX, 0.59, worldZ);
+    bGroup.position.set(0, 0.59, 0);
     bGroup.rotation.y = tile.outwardRotationY;
 
-    this.root.add(bGroup);
+    tileContainer.add(bGroup);
     this.buildingGroups.set(tileIndex, bGroup);
 
+    const worldX = tile.gridX * TILE_SPACING;
+    const worldZ = tile.gridZ * TILE_SPACING;
     soundManager.playBuildPop(level);
     this.particles.spawnBuildingPopSparkles(new THREE.Vector3(worldX, 0.8, worldZ), ownerColorHex);
 
@@ -1068,7 +1586,9 @@ export class IslandBoard3D {
   }
 
   public clearAllBuildings(): void {
-    this.buildingGroups.forEach((grp) => this.root.remove(grp));
+    this.buildingGroups.forEach((grp, idx) => {
+      this.tileContainerGroups[idx]?.remove(grp);
+    });
     this.buildingGroups.clear();
     this.crownMeshes = [];
     this.hideTargetTileBeacon();
@@ -1198,35 +1718,48 @@ export class IslandBoard3D {
     this.waterMesh.position.y = -1.35 + Math.sin(elapsedTime * 1.8) * 0.07;
     this.cloudsGroup.rotation.y = elapsedTime * 0.03;
 
+    // Scroll the Beacon Beam pixel texture upward continuously!
+    this.beaconBeamTexture.offset.y = -elapsedTime * 1.4;
+
     this.waterfallDrops.forEach((drop, idx) => {
       const cycle = ((elapsedTime * 1.8 + idx * 0.25) % 2.0) / 2.0;
       drop.position.y = 0.35 - cycle * 2.1;
     });
 
     if (this.beaconBeam) {
-      this.beaconBeam.rotation.y = elapsedTime * 0.8;
+      this.beaconBeam.rotation.y = elapsedTime * 1.2;
     }
 
-    // Animate the 9 Floating Iron Blocks & 3D Target Beacon when visible!
+    // Animate the Authentic Target Beacon + 9 Iron Blocks + Counter-rotating Beams!
     if (this.targetBeaconGroup && this.targetBeaconGroup.visible) {
       if (this.targetIronBaseGroup) {
-        this.targetIronBaseGroup.position.y = Math.sin(elapsedTime * 3.5) * 0.14;
-        this.targetIronBaseGroup.rotation.y = Math.sin(elapsedTime * 1.2) * 0.08;
+        this.targetIronBaseGroup.position.y = Math.sin(elapsedTime * 3.2) * 0.14;
       }
-      if (this.targetLightColumn) {
-        this.targetLightColumn.rotation.y = elapsedTime * 2.4;
+      if (this.targetBeaconStarCore) {
+        this.targetBeaconStarCore.rotation.y = elapsedTime * 3.4;
+        this.targetBeaconStarCore.rotation.x = elapsedTime * 2.1;
       }
+      if (this.targetBeamInner) {
+        this.targetBeamInner.rotation.y = elapsedTime * 2.5;
+      }
+      if (this.targetBeamOuter) {
+        this.targetBeamOuter.rotation.y = -elapsedTime * 1.6;
+      }
+    }
+
+    // Animate End Portal Starfield Void & Nether Portal Vortex UVs
+    for (const voidTex of this.endPortalVoidTextures) {
+      voidTex.offset.x = Math.sin(elapsedTime * 0.5) * 0.25;
+      voidTex.offset.y = elapsedTime * 0.15;
+    }
+    for (const vortexTex of this.netherPortalTextures) {
+      vortexTex.offset.x = Math.sin(elapsedTime * 2.0) * 0.2;
+      vortexTex.offset.y = elapsedTime * 0.45;
     }
 
     for (const crown of this.crownMeshes) {
       crown.rotation.y = elapsedTime * 2.2;
       crown.position.y = 1.72 + Math.sin(elapsedTime * 3.5) * 0.07;
-    }
-
-    if (this.endPortalSurface) {
-      const mat = this.endPortalSurface.material as THREE.MeshBasicMaterial;
-      const hue = 0.76 + Math.sin(elapsedTime * 3.0) * 0.04;
-      mat.color.setHSL(hue, 0.85, 0.6);
     }
   }
 }

@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import gsap from 'gsap';
+import { soundManager } from '../audio/SoundManager';
 
 interface VoxelParticle {
   mesh: THREE.Mesh;
@@ -10,13 +12,50 @@ interface VoxelParticle {
   spinSpeed: THREE.Vector3;
 }
 
+function createDollarSpriteTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createRadialGradient(64, 64, 10, 64, 64, 60);
+  grad.addColorStop(0, '#10b981');
+  grad.addColorStop(0.75, '#059669');
+  grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(64, 64, 60, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#064e3b';
+  ctx.beginPath();
+  ctx.arc(64, 64, 42, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#fde047';
+  ctx.lineWidth = 6;
+  ctx.stroke();
+
+  ctx.fillStyle = '#34d399';
+  ctx.font = '900 54px "Chakra Petch", "Be Vietnam Pro", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('$', 64, 67);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export class ParticleSystem3D {
   private group = new THREE.Group();
   private particles: VoxelParticle[] = [];
   private unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+  private dollarTex: THREE.CanvasTexture;
 
   constructor(parentScene: THREE.Scene) {
     this.group.name = 'VoxelParticleSystem';
+    this.dollarTex = createDollarSpriteTexture();
     parentScene.add(this.group);
   }
 
@@ -93,7 +132,7 @@ export class ParticleSystem3D {
           1.4 + Math.random() * 1.8,
           (Math.random() - 0.5) * 1.6
         ),
-        gravity: 0.6, // Floats upward like Minecraft Enderman particles!
+        gravity: 0.6,
         age: 0,
         maxAge: 0.52 + Math.random() * 0.25,
         initialScale: scale,
@@ -181,6 +220,73 @@ export class ParticleSystem3D {
         spinSpeed: new THREE.Vector3(7, 7, 7)
       });
     }
+  }
+
+  /**
+   * 5. Hiệu ứng các đồng tiền '$' 3D bay vòng cung Parabol từ nhân vật bị trừ tiền
+   * sang nhân vật chủ sở hữu khu đất trên bàn cờ 3D!
+   */
+  public spawnRentCashParabola3D(
+    fromPos: THREE.Vector3,
+    toPos: THREE.Vector3,
+    speedMultiplier = 1
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const count = 14;
+      const dist = fromPos.distanceTo(toPos);
+      const arcHeight = Math.max(3.6, Math.min(8.5, 3.2 + dist * 0.22));
+      let completed = 0;
+
+      for (let i = 0; i < count; i++) {
+        const mat = new THREE.SpriteMaterial({
+          map: this.dollarTex,
+          transparent: true,
+          depthTest: false
+        });
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.set(0.82, 0.82, 1);
+        sprite.renderOrder = 950;
+        sprite.position.set(fromPos.x, fromPos.y + 1.1, fromPos.z);
+        this.group.add(sprite);
+
+        // Slight lateral spread so the stream of '$' coins looks lush and dynamic
+        const jitterX = (Math.random() - 0.5) * 0.55;
+        const jitterZ = (Math.random() - 0.5) * 0.55;
+
+        const prog = { t: 0 };
+        gsap.to(prog, {
+          t: 1,
+          delay: (i * 0.042) / Math.max(1, speedMultiplier),
+          duration: 0.68 / Math.max(1, speedMultiplier),
+          ease: 'power1.inOut',
+          onUpdate: () => {
+            const u = prog.t;
+            const parabola = 4 * u * (1 - u);
+            sprite.position.x =
+              THREE.MathUtils.lerp(fromPos.x, toPos.x, u) + jitterX * parabola;
+            sprite.position.z =
+              THREE.MathUtils.lerp(fromPos.z, toPos.z, u) + jitterZ * parabola;
+            sprite.position.y =
+              THREE.MathUtils.lerp(fromPos.y + 1.1, toPos.y + 1.1, u) + arcHeight * parabola;
+
+            const pulse = 0.78 + Math.sin(u * Math.PI) * 0.34;
+            sprite.scale.set(pulse, pulse, 1);
+          },
+          onComplete: () => {
+            this.group.remove(sprite);
+            mat.dispose();
+            if (i % 3 === 0) {
+              soundManager.playCoinChime();
+              this.spawnBuildingPopSparkles(toPos, '#34d399');
+            }
+            completed += 1;
+            if (completed >= count) {
+              resolve();
+            }
+          }
+        });
+      }
+    });
   }
 
   public update(dt: number): void {

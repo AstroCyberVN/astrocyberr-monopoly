@@ -7,6 +7,7 @@ export interface BotDecision {
     | 'UPGRADE_PROPERTY'
     | 'FESTIVAL_BOOST'
     | 'TELEPORT_TARGET'
+    | 'NETHER_WARP'
     | 'SKIP_ACTION';
   tileIndex: number;
   reason: string;
@@ -115,6 +116,15 @@ export function chooseBotAction(engine: GameEngine, botPlayerId: string): BotDec
       type: 'TELEPORT_TARGET',
       tileIndex: 0,
       reason: 'Bay về Ô Khởi Hành để nhận +$200'
+    };
+  }
+
+  // 5. Nether Portal (Tile 33) -> Warp through the Nether Dimension (+120$ Piglin Gold + x8 Overworld steps)
+  if (cfg.type === 'NETHER_PORTAL') {
+    return {
+      type: 'NETHER_WARP',
+      tileIndex: pos,
+      reason: 'Bước qua Cổng Nether để nhận +$120 Vàng Piglin và nhảy vọt x8 bước!'
     };
   }
 
