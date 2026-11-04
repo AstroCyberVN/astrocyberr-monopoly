@@ -6,7 +6,12 @@ import {
   BOARD_SIZE,
   BOARD_TILES,
   BUILDING_TIER_NAMES,
-  CharacterId
+  CHARACTER_CONFIGS,
+  COLOR_GROUP_ORDER,
+  CharacterId,
+  getExportableTilesSpecArray,
+  resetBoardTilesToDefault,
+  updateBoardTileConfigInPlace
 } from './core/boardData';
 import {
   ConfirmedRentPaymentResult,
@@ -136,9 +141,26 @@ class AstroCyberrMonopolyApp {
   private rollChargeRatio = 0;
   private rollChargeTimer: number | null = null;
 
-  // Active keyboard shortcut handlers for Skip Bar & Action Modal (Space = Confirm/Buy/Skip, Esc = Cancel/Pass)
+  // Active keyboard shortcut handlers for Skip Bar & Action Modal (Space = Confirm/Buy/Skip, Esc = Cancel/Pass, B = Hostile Buyout)
   private activeModalPrimaryAction: (() => void) | null = null;
   private activeModalSecondaryAction: (() => void) | null = null;
+  private activeModalBuyoutAction: (() => void) | null = null;
+
+  // UX-03: Direct 3D Tile Picker callback (for End Portal #30 & Festival #20)
+  private active3DTilePickerHandler: ((tileIndex: number) => void) | null = null;
+
+  // FIX-03: Pointer down coordinates to distinguish 360° camera drag from intentional click
+  private pointerDownClientX = 0;
+  private pointerDownClientY = 0;
+
+  // UPG-01: Dynamic Day / Sunset / Starry Night Environment Cycle
+  private hemiLight!: THREE.HemisphereLight;
+  private sunLight!: THREE.DirectionalLight;
+  private timeOfDayPhase: 'DAY' | 'SUNSET' | 'NIGHT' = 'DAY';
+
+  // FEAT-05: Owner-Only Admin Studio State
+  private isAdminUnlocked = false;
+  private versionClickCount = 0;
 
   constructor() {
     this.initThreeScene();
@@ -170,23 +192,23 @@ class AstroCyberrMonopolyApp {
       e.preventDefault();
     });
 
-    const hemiLight = new THREE.HemisphereLight('#ffffff', '#38bdf8', 0.98);
-    hemiLight.position.set(0, 35, 0);
-    this.scene.add(hemiLight);
+    this.hemiLight = new THREE.HemisphereLight('#ffffff', '#38bdf8', 0.98);
+    this.hemiLight.position.set(0, 35, 0);
+    this.scene.add(this.hemiLight);
 
-    const sunLight = new THREE.DirectionalLight('#fffbeb', 1.5);
-    sunLight.position.set(22, 36, 24);
-    sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.camera.near = 2;
-    sunLight.shadow.camera.far = 110;
+    this.sunLight = new THREE.DirectionalLight('#fffbeb', 1.5);
+    this.sunLight.position.set(22, 36, 24);
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.width = 2048;
+    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.camera.near = 2;
+    this.sunLight.shadow.camera.far = 110;
     const d = 24;
-    sunLight.shadow.camera.left = -d;
-    sunLight.shadow.camera.right = d;
-    sunLight.shadow.camera.top = d;
-    sunLight.shadow.camera.bottom = -d;
-    this.scene.add(sunLight);
+    this.sunLight.shadow.camera.left = -d;
+    this.sunLight.shadow.camera.right = d;
+    this.sunLight.shadow.camera.top = d;
+    this.sunLight.shadow.camera.bottom = -d;
+    this.scene.add(this.sunLight);
 
     this.cameraDirector = new CameraDirector(
       window.innerWidth / window.innerHeight,
@@ -207,11 +229,23 @@ class AstroCyberrMonopolyApp {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    // FIX-03: Record pointerdown coords so dragging to rotate camera never triggers an accidental tile/character click!
+    this.renderer.domElement.addEventListener('pointerdown', (ev) => {
+      this.pointerDownClientX = ev.clientX;
+      this.pointerDownClientY = ev.clientY;
+    });
+
     // Click on 3D Scene:
     // 1. If clicking a 3D Character Model -> Lock camera to follow that character (with free 360° rotation)!
-    // 2. If clicking a 3D Tile -> Elevate & tilt tile toward camera (along with any character on it!) and fly camera to inspect!
+    // 2. If clicking Central Beacon / Courtyard Trees -> Trigger Whimsy Easter Egg (UPG-05)!
+    // 3. If clicking a 3D Tile -> Either trigger active3DTilePickerHandler (UX-03) or Elevate & Tilt tile toward camera!
     this.renderer.domElement.addEventListener('click', async (ev) => {
-      if (this.cameraDirector.wasDragging()) return;
+      const dragDist = Math.hypot(
+        ev.clientX - this.pointerDownClientX,
+        ev.clientY - this.pointerDownClientY
+      );
+      if (dragDist > 5 || this.cameraDirector.wasDragging()) return;
+
       const rect = this.renderer.domElement.getBoundingClientRect();
       this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
       this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -239,7 +273,26 @@ class AstroCyberrMonopolyApp {
         }
       }
 
-      // 2. Otherwise check if user clicked on a 3D Board Tile
+      // 2. UPG-05: Check if user clicked on Whimsy Easter Eggs (Beacon or Courtyard Trees)
+      const whimsyHits = this.raycaster.intersectObjects(
+        this.islandBoard.getWhimsyClickables(),
+        true
+      );
+      if (whimsyHits.length > 0) {
+        const hitObj = whimsyHits[0].object;
+        if (hitObj.userData?.whimsyType === 'BEACON') {
+          const beamColor = this.islandBoard.cycleBeaconBeamColor();
+          this.engine.addLog(`🌈 Tháp Beacon trung tâm đổi sang ánh sáng ${beamColor.name}!`);
+          this.renderHUD();
+          return;
+        }
+        if (hitObj.userData?.whimsyType === 'TREE' && hitObj.userData?.treeGroup) {
+          this.islandBoard.triggerTreeWhimsy(hitObj.userData.treeGroup);
+          return;
+        }
+      }
+
+      // 3. Otherwise check if user clicked on a 3D Board Tile
       const hits = this.raycaster.intersectObjects(this.islandBoard.root.children, true);
       let clickedTileIdx: number | null = null;
       for (const hit of hits) {
@@ -255,6 +308,12 @@ class AstroCyberrMonopolyApp {
       }
 
       if (clickedTileIdx !== null) {
+        // UX-03: If a 3D Tile Picker is active (End Portal #30 or Festival #20), trigger it directly on 3D click!
+        if (this.active3DTilePickerHandler) {
+          this.active3DTilePickerHandler(clickedTileIdx);
+          return;
+        }
+
         document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
         const tileCfg = this.engine.getTileConfig(clickedTileIdx);
 
@@ -481,7 +540,29 @@ class AstroCyberrMonopolyApp {
     // - Space: Confirm Buy / Upgrade / Pay Rent / Bankruptcy / Skip 3s Delay / Hold to Roll Dice
     // - Escape: Pass / Skip Buy / Close Tile Popup
     window.addEventListener('keydown', (e) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      if (
+        ((e.target as HTMLElement)?.tagName === 'INPUT' ||
+          (e.target as HTMLElement)?.tagName === 'TEXTAREA' ||
+          (e.target as HTMLElement)?.tagName === 'SELECT') &&
+        e.key !== 'Escape'
+      ) {
+        return;
+      }
+
+      // FEAT-05: Secret Owner Shortcut (Ctrl + Shift + E) to unlock & open the Admin 40-Tile Studio
+      if (e.ctrlKey && e.shiftKey && (e.key === 'e' || e.key === 'E') && !e.repeat) {
+        e.preventDefault();
+        this.unlockAndOpenAdminStudio();
+        return;
+      }
+
+      // FEAT-01: Press 'B' in Rent Modal to execute Hostile Buyout!
+      if ((e.key === 'b' || e.key === 'B') && !e.repeat && this.activeModalBuyoutAction) {
+        e.preventDefault();
+        const fn = this.activeModalBuyoutAction;
+        fn();
+        return;
+      }
 
       if ((e.key === 'f' || e.key === 'F') && !e.repeat) {
         e.preventDefault();
@@ -574,6 +655,31 @@ class AstroCyberrMonopolyApp {
       this.gameSpeedMultiplier = spd;
       document.getElementById('speed-multiplier-label')!.textContent = `${spd}x`;
     });
+
+    // UX-04: Reduced Motion Toggle
+    const btnReducedMotion = document.getElementById('btn-reduced-motion-toggle');
+    btnReducedMotion?.addEventListener('click', () => {
+      const active = document.body.classList.toggle('reduced-motion');
+      const label = document.getElementById('reduced-motion-status-label')!;
+      const sw = document.getElementById('reduced-motion-switch-ui')!;
+      label.textContent = active ? 'Đang bật' : 'Đang tắt';
+      label.className = active ? 'emerald-text' : 'muted-text';
+      sw.classList.toggle('on', active);
+    });
+
+    // UPG-01: Time of Day Toggle Button
+    document.getElementById('btn-time-of-day')?.addEventListener('click', () => {
+      const nextPhase =
+        this.timeOfDayPhase === 'DAY'
+          ? 'SUNSET'
+          : this.timeOfDayPhase === 'SUNSET'
+            ? 'NIGHT'
+            : 'DAY';
+      this.setEnvironmentTimeOfDay(nextPhase);
+    });
+
+    // FEAT-05: Admin Studio Setup (Unlocked via ?admin=1, localStorage flag, Ctrl+Shift+E, or 3x clicking v4.0 badge)
+    this.setupOwnerAdminTileStudio();
 
     document.getElementById('btn-close-tile-popup')!.addEventListener('click', () => {
       document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
@@ -896,6 +1002,10 @@ class AstroCyberrMonopolyApp {
     );
 
     if (payRes.paidAmount > 0) {
+      // UPG-02: Trigger 3D Chibi Emote Reactions on both Payer and Landlord!
+      this.characters3D.playEmoteReaction(payer.characterId, `😭 -$${payRes.paidAmount}`, 'SAD');
+      this.characters3D.playEmoteReaction(owner.characterId, `🤑 +$${payRes.paidAmount}`, 'HAPPY');
+
       await Promise.all([
         this.particles.spawnRentCashParabola3D(payerPos3D, ownerPos3D, this.gameSpeedMultiplier),
         this.animate2DRentTransferOnHUD(
@@ -980,6 +1090,15 @@ class AstroCyberrMonopolyApp {
     }
 
     this.islandBoard.hideTargetTileBeacon();
+
+    // UPG-02: If another character is standing on the same tile, wave hello to each other!
+    const coTilePlayers = this.engine
+      .getPlayers()
+      .filter((p) => !p.bankrupt && p.id !== player.id && p.position === player.position);
+    if (coTilePlayers.length > 0) {
+      this.characters3D.playEmoteReaction(player.characterId, '👋 Chào!', 'WAVE');
+      this.characters3D.playEmoteReaction(coTilePlayers[0].characterId, '👋 Hi!', 'WAVE');
+    }
 
     // 5. LIVE Mode Stage 3: Close-Up on Landed Tile / Event!
     const landedPos = this.islandBoard.getTileStandPosition(player.position, playerIdx);
@@ -1190,11 +1309,14 @@ class AstroCyberrMonopolyApp {
 
     modal.classList.remove('hidden');
 
-    // 1. Landed on an Owned Property (`PAID_RENT`): Show Reason + Amount + Confirm Payment [Space] OR Direct Bankruptcy [Space]!
+    // 1. Landed on an Owned Property (`PAID_RENT`): Show Reason + Amount + Confirm Payment [Space] + Hostile Buyout [B] OR Emergency Liquidation / Bankruptcy!
     if (res.action === 'PAID_RENT') {
       const rentAmount = res.amount ?? 0;
-      const canAfford = res.canAffordRent ?? player.gold >= rentAmount;
+      const canAfford = player.gold >= rentAmount;
       const afterGold = Math.max(0, player.gold - rentAmount);
+      const buyoutCost = this.engine.getBuyoutCost(res.tileIndex);
+      const canBuyout = buyoutCost !== null && player.gold >= rentAmount + buyoutCost;
+      const liquidatable = this.engine.getPlayerLiquidatableProperties(playerId);
 
       if (canAfford) {
         inner.innerHTML = `
@@ -1225,14 +1347,43 @@ class AstroCyberrMonopolyApp {
               <span>💸 Xác Nhận Thanh Toán (-$${rentAmount})</span>
               <kbd class="key-hint">Space</kbd>
             </button>
+            ${
+              canBuyout && buyoutCost
+                ? `<button id="act-btn-hostile-buyout" class="action-btn modal-btn buyout">
+                     <span>⚔️ Trả Thuê & Mua Đứt Luôn (-$${rentAmount + buyoutCost})</span>
+                     <kbd class="key-hint">B</kbd>
+                   </button>`
+                : ''
+            }
           </div>
         `;
       } else {
+        const liquidationHtml =
+          liquidatable.length > 0
+            ? `
+              <div class="emergency-liquidation-box">
+                <div class="emergency-liquidation-title">🏦 Thanh Lý Tài Sản Khẩn Cấp (Thu hồi 75% giá trị để cứu mạng):</div>
+                ${liquidatable
+                  .map(
+                    (item) => `
+                  <div class="liquidation-item-row">
+                    <span>#${item.tileIndex} ${item.name} (Cấp ${item.level})</span>
+                    <button class="btn-sell-property" data-sell-tile="${item.tileIndex}">Bán +$${item.resaleValue}</button>
+                  </div>
+                `
+                  )
+                  .join('')}
+              </div>
+            `
+            : '';
+
         inner.innerHTML = `
           <span class="action-card-badge" style="background:#ef4444;color:#ffffff">
-            💀 PHÁ SẢN • KHÔNG ĐỦ KHẢ NĂNG THANH TOÁN
+            💀 CẢNH BÁO PHÁ SẢN • THIẾU $${rentAmount - player.gold}
           </span>
-          <h3 class="action-card-title">Loại Khỏi Đường Đua!</h3>
+          <h3 class="action-card-title">${
+            liquidatable.length > 0 ? 'Thanh Lý Đất Hoặc Phá Sản!' : 'Loại Khỏi Đường Đua!'
+          }</h3>
           <p class="action-card-desc">
             Bạn đã đi vào đất <strong>${tileCfg.name}</strong> của <strong>${res.ownerName}</strong>.<br/>
             Vì <strong>${res.rentReason}</strong> nên phải trả <strong>$${rentAmount}</strong>, nhưng bạn chỉ còn <strong>$${player.gold}</strong>!
@@ -1243,7 +1394,7 @@ class AstroCyberrMonopolyApp {
               <span class="danger-val">$${rentAmount}</span>
             </div>
             <div class="rent-invoice-row">
-              <span>Tài sản hiện có</span>
+              <span>Tiền mặt hiện có</span>
               <strong>$${player.gold}</strong>
             </div>
             <div class="rent-invoice-row">
@@ -1251,6 +1402,7 @@ class AstroCyberrMonopolyApp {
               <span class="danger-val">💀 PHÁ SẢN & LOẠI KHỎI ĐƯỜNG ĐUA</span>
             </div>
           </div>
+          ${liquidationHtml}
           <div class="action-btn-group">
             <button id="act-btn-confirm-rent" class="action-btn action-btn-bankrupt">
               <span>💀 Tuyên Bố Phá Sản & Rời Cuộc Đua</span>
@@ -1258,6 +1410,22 @@ class AstroCyberrMonopolyApp {
             </button>
           </div>
         `;
+
+        // FEAT-02: Bind emergency property liquidation buttons
+        inner.querySelectorAll<HTMLButtonElement>('.btn-sell-property').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const sellIdx = Number(btn.dataset.sellTile);
+            const prevGold = player.gold;
+            const sold = this.engine.liquidateProperty(playerId, sellIdx);
+            if (sold.ok) {
+              soundManager.playCoinChime();
+              this.islandBoard.updateTileBuilding(sellIdx, 0, player.color, 1);
+              this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
+              res.canAffordRent = player.gold >= rentAmount;
+              this.showHumanActionModal(playerId, playerSlot, res);
+            }
+          });
+        });
       }
 
       const doConfirmRent = async () => {
@@ -1274,9 +1442,37 @@ class AstroCyberrMonopolyApp {
         this.advanceToNextTurn();
       };
 
+      const doHostileBuyout = async () => {
+        this.hideActionModal();
+        const payRes = this.engine.executeConfirmedRentPayment(playerId, res.tileIndex);
+        await this.playConfirmedRentTransferEffects(playerId, playerSlot, payRes);
+
+        const prevBuyerGold = player.gold;
+        const takeover = this.engine.buyoutOpponentProperty(playerId, res.tileIndex);
+        if (takeover.ok) {
+          soundManager.playCoinChime();
+          const st = this.engine.getTileState(res.tileIndex);
+          this.islandBoard.updateTileBuilding(
+            res.tileIndex,
+            st.level,
+            player.color,
+            st.festivalMultiplier
+          );
+          this.characters3D.playEmoteReaction(player.characterId, '⚔️ Thôn Tính!', 'TAKEOVER');
+          this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevBuyerGold, player.gold);
+        }
+        this.showBottomLeftTilePopup(res.tileIndex);
+        this.advanceToNextTurn();
+      };
+
       this.activeModalPrimaryAction = doConfirmRent;
       this.activeModalSecondaryAction = null;
+      this.activeModalBuyoutAction = canBuyout ? doHostileBuyout : null;
+
       document.getElementById('act-btn-confirm-rent')!.addEventListener('click', doConfirmRent);
+      document
+        .getElementById('act-btn-hostile-buyout')
+        ?.addEventListener('click', doHostileBuyout);
       return;
     }
 
@@ -1451,7 +1647,60 @@ class AstroCyberrMonopolyApp {
     }
 
     if (res.action === 'CHOOSE_PORTAL_TARGET') {
-      const tileButtonsHtml = BOARD_TILES.filter((t) => t.index !== 30)
+      const validTargets = BOARD_TILES.filter((t) => t.index !== 30);
+      this.islandBoard.setPickerHighlightTiles(validTargets.map((t) => t.index));
+
+      const executePortalJump = (targetIdx: number) => {
+        this.active3DTilePickerHandler = null;
+        this.islandBoard.setPickerHighlightTiles([]);
+        soundManager.playPortalWarp();
+        const prevGold = player.gold;
+        const fromPos = this.islandBoard.getTileStandPosition(player.position, playerSlot);
+        this.particles.spawnEndermanPortalParticles(fromPos);
+
+        this.engine.teleportFromEndPortal(playerId, targetIdx);
+        const toTf = this.islandBoard.getTileStandTransform(player.position, playerSlot);
+        const destCfg = this.engine.getTileConfig(player.position);
+        this.characters3D.placeCharacterAt(
+          player.characterId,
+          toTf.position,
+          destCfg.outwardRotationY,
+          toTf.rotX,
+          toTf.rotZ,
+          toTf.scale
+        );
+        this.particles.spawnEndermanPortalParticles(toTf.position);
+        if (player.gold !== prevGold) {
+          this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
+        }
+
+        this.showBottomLeftTilePopup(targetIdx);
+        const postPortalRes = this.engine.resolveTileLanding(playerId, {
+          deferRentPayment: true
+        });
+        this.syncAllBuildingsToBoard();
+        this.renderHUD();
+
+        if (
+          postPortalRes.action === 'CAN_BUY_PROPERTY' ||
+          postPortalRes.action === 'CAN_UPGRADE_PROPERTY' ||
+          postPortalRes.action === 'PAID_RENT'
+        ) {
+          this.showHumanActionModal(playerId, playerSlot, postPortalRes);
+        } else {
+          this.hideActionModal();
+          this.advanceToNextTurn();
+        }
+      };
+
+      // UX-03: Allow clicking any 3D tile directly on the board!
+      this.active3DTilePickerHandler = (clickedIdx: number) => {
+        if (clickedIdx !== 30) {
+          executePortalJump(clickedIdx);
+        }
+      };
+
+      const tileButtonsHtml = validTargets
         .map(
           (t) =>
             `<button class="portal-tile-btn" data-target="${t.index}">#${t.index} ${t.icon} ${t.name.split(' ').slice(0, 2).join(' ')}</button>`
@@ -1460,52 +1709,14 @@ class AstroCyberrMonopolyApp {
 
       inner.innerHTML = `
         <span class="action-card-badge" style="background:#9333ea;color:#ffffff">🌌 Cổng Dịch Chuyển The End (12 Khung)</span>
-        <h3 class="action-card-title">Chọn Ô Bất Kỳ Để Bay Tới!</h3>
-        <p class="action-card-desc">Nếu bay qua Đại Lộ Khởi Hành (#0) bạn vẫn được nhận <strong>+$200</strong>!</p>
+        <h3 class="action-card-title">Click Ô 3D Bất Kỳ Hoặc Chọn Nhanh!</h3>
+        <p class="action-card-desc">💡 <strong>Mẹo:</strong> Bạn có thể click trực tiếp lên ô đất 3D đang phát sáng trên bàn cờ hoặc chọn bên dưới!</p>
         <div class="portal-grid">${tileButtonsHtml}</div>
       `;
 
       inner.querySelectorAll<HTMLButtonElement>('.portal-tile-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
-          const targetIdx = Number(btn.dataset.target || 0);
-          soundManager.playPortalWarp();
-          const prevGold = player.gold;
-          const fromPos = this.islandBoard.getTileStandPosition(player.position, playerSlot);
-          this.particles.spawnEndermanPortalParticles(fromPos);
-
-          this.engine.teleportFromEndPortal(playerId, targetIdx);
-          const toTf = this.islandBoard.getTileStandTransform(player.position, playerSlot);
-          const destCfg = this.engine.getTileConfig(player.position);
-          this.characters3D.placeCharacterAt(
-            player.characterId,
-            toTf.position,
-            destCfg.outwardRotationY,
-            toTf.rotX,
-            toTf.rotZ,
-            toTf.scale
-          );
-          this.particles.spawnEndermanPortalParticles(toTf.position);
-          if (player.gold !== prevGold) {
-            this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
-          }
-
-          this.showBottomLeftTilePopup(targetIdx);
-          const postPortalRes = this.engine.resolveTileLanding(playerId, {
-            deferRentPayment: true
-          });
-          this.syncAllBuildingsToBoard();
-          this.renderHUD();
-
-          if (
-            postPortalRes.action === 'CAN_BUY_PROPERTY' ||
-            postPortalRes.action === 'CAN_UPGRADE_PROPERTY' ||
-            postPortalRes.action === 'PAID_RENT'
-          ) {
-            this.showHumanActionModal(playerId, playerSlot, postPortalRes);
-          } else {
-            this.hideActionModal();
-            this.advanceToNextTurn();
-          }
+          executePortalJump(Number(btn.dataset.target || 0));
         });
       });
       return;
@@ -1519,6 +1730,25 @@ class AstroCyberrMonopolyApp {
         soundManager.playCoinChime();
         this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
       } else {
+        this.islandBoard.setPickerHighlightTiles(owned.map((o) => o.index));
+
+        const executeFest = (idx: number) => {
+          this.active3DTilePickerHandler = null;
+          this.islandBoard.setPickerHighlightTiles([]);
+          this.engine.applyFestivalBoost(playerId, idx);
+          const st = this.engine.getTileState(idx);
+          this.islandBoard.updateTileBuilding(idx, st.level, player.color, st.festivalMultiplier);
+          this.renderHUD();
+          this.hideActionModal();
+          this.advanceToNextTurn();
+        };
+
+        this.active3DTilePickerHandler = (clickedIdx: number) => {
+          if (owned.some((o) => o.index === clickedIdx)) {
+            executeFest(clickedIdx);
+          }
+        };
+
         const ownedButtons = owned
           .map((st) => {
             const cfg = this.engine.getTileConfig(st.index);
@@ -1529,19 +1759,13 @@ class AstroCyberrMonopolyApp {
         inner.innerHTML = `
           <span class="action-card-badge" style="background:#ec4899;color:#ffffff">🎉 Đại Tiệc Lễ Hội Thành Phố</span>
           <h3 class="action-card-title">Nhân Đôi (x2) Tiền Thuê Đất!</h3>
-          <p class="action-card-desc">Chọn 1 ô đất thuộc sở hữu của bạn để nhân đôi tiền thuê:</p>
+          <p class="action-card-desc">Click trực tiếp vào ô đất 3D đang phát sáng của bạn hoặc chọn dưới đây:</p>
           <div class="portal-grid">${ownedButtons}</div>
         `;
 
         inner.querySelectorAll<HTMLButtonElement>('.portal-tile-btn').forEach((btn) => {
           btn.addEventListener('click', () => {
-            const idx = Number(btn.dataset.fest || 0);
-            this.engine.applyFestivalBoost(playerId, idx);
-            const st = this.engine.getTileState(idx);
-            this.islandBoard.updateTileBuilding(idx, st.level, player.color, st.festivalMultiplier);
-            this.renderHUD();
-            this.hideActionModal();
-            this.advanceToNextTurn();
+            executeFest(Number(btn.dataset.fest || 0));
           });
         });
         return;
@@ -1582,12 +1806,16 @@ class AstroCyberrMonopolyApp {
   private hideActionModal(): void {
     this.activeModalPrimaryAction = null;
     this.activeModalSecondaryAction = null;
+    this.activeModalBuyoutAction = null;
+    this.active3DTilePickerHandler = null;
+    this.islandBoard.setPickerHighlightTiles([]);
     document.getElementById('floating-action-modal')!.classList.add('hidden');
   }
 
   private advanceToNextTurn(): void {
     if (this.engine.getWinner()) return;
 
+    const prevRound = this.engine.getRound();
     const current = this.engine.getCurrentPlayer();
     let activePlayer = current;
     if (this.engine.canTakeExtraDoublesTurn()) {
@@ -1595,6 +1823,18 @@ class AstroCyberrMonopolyApp {
     } else {
       const next = this.engine.nextTurn();
       activePlayer = next.activePlayer;
+    }
+
+    // UPG-01: Automatically transition Day -> Sunset -> Starry Night every 3 rounds!
+    const newRound = this.engine.getRound();
+    if (newRound !== prevRound && newRound % 3 === 1) {
+      const nextPhase =
+        this.timeOfDayPhase === 'DAY'
+          ? 'SUNSET'
+          : this.timeOfDayPhase === 'SUNSET'
+            ? 'NIGHT'
+            : 'DAY';
+      this.setEnvironmentTimeOfDay(nextPhase);
     }
 
     this.isBusy = false;
@@ -1743,11 +1983,17 @@ class AstroCyberrMonopolyApp {
       .map((p) => {
         const isCurrent = p.id === active.id && !p.bankrupt;
         const isFollowed = followedCharId === p.characterId && !p.bankrupt;
+        const charCfg = CHARACTER_CONFIGS.find((c) => c.id === p.characterId);
 
         const statusPills: string[] = [];
         if (p.bankrupt) {
           statusPills.push(`<span class="status-pill status-pill-bankrupt">💀 PHÁ SẢN • LOẠI</span>`);
         } else {
+          if (charCfg) {
+            statusPills.push(
+              `<span class="status-pill status-pill-passive" title="${charCfg.passiveDescription}">${charCfg.passiveName}</span>`
+            );
+          }
           if (p.skipTurns > 0) {
             statusPills.push(
               `<span class="status-pill status-pill-skip">🏝️ Mất ${p.skipTurns} lượt</span>`
@@ -1758,12 +2004,19 @@ class AstroCyberrMonopolyApp {
           }
         }
 
+        // UX-02: 8 Color Group Ownership Dots (lights up when owning at least 1 tile; gold glow when Monopoly set completed!)
+        const colorDotsHtml = COLOR_GROUP_ORDER.map((grp) => {
+          const own = this.engine.getPlayerColorGroupOwnership(p.id, grp.id);
+          const cls = own.isMonopoly ? 'monopoly' : own.ownedCount > 0 ? 'owned' : '';
+          return `<span class="color-group-dot ${cls}" style="--dot-color:${grp.hex}" title="${grp.label}: ${own.ownedCount}/${own.totalCount} ô${own.isMonopoly ? ' (ĐỘC QUYỀN x1.5!)' : ''}"></span>`;
+        }).join('');
+
         return `
           <div
             class="player-rect-card ${isCurrent ? 'active-turn' : ''} ${p.bankrupt ? 'bankrupt' : ''} ${isFollowed ? 'followed-target' : ''}"
             data-player-card-id="${p.id}"
             data-player-char-id="${p.characterId}"
-            title="Click để Camera theo dõi ${p.name} (Hoặc bấm phím A / D)"
+            title="Click để Camera theo dõi ${p.name} (Hoặc bấm phím A / D) • ${charCfg?.passiveDescription ?? ''}"
           >
             ${isCurrent ? '<span class="active-turn-pill">▶ ĐANG ĐI</span>' : ''}
             <canvas
@@ -1775,6 +2028,7 @@ class AstroCyberrMonopolyApp {
             <div class="player-rect-info">
               <div class="player-rect-name">${p.name}</div>
               <div class="player-rect-coin" data-player-coin-id="${p.id}">$${p.gold.toLocaleString('en-US')}</div>
+              <div class="player-color-dots-row">${colorDotsHtml}</div>
               ${
                 statusPills.length > 0
                   ? `<div class="player-status-row">${statusPills.join('')}</div>`
@@ -1809,6 +2063,245 @@ class AstroCyberrMonopolyApp {
       .slice(0, 28)
       .map((item) => `<div class="log-item">${item}</div>`)
       .join('');
+  }
+
+  /**
+   * UPG-01: Dynamic Day -> Sunset -> Starry Night Environment Cycle
+   */
+  private setEnvironmentTimeOfDay(phase: 'DAY' | 'SUNSET' | 'NIGHT'): void {
+    this.timeOfDayPhase = phase;
+    const pill = document.getElementById('btn-time-of-day');
+
+    if (phase === 'DAY') {
+      if (pill) pill.textContent = '☀️ Ngày';
+      this.scene.background = new THREE.Color('#7dd3fc');
+      this.scene.fog = new THREE.FogExp2('#7dd3fc', 0.0042);
+      this.hemiLight.color.set('#ffffff');
+      this.hemiLight.groundColor.set('#38bdf8');
+      this.hemiLight.intensity = 0.98;
+      this.sunLight.color.set('#fffbeb');
+      this.sunLight.intensity = 1.5;
+    } else if (phase === 'SUNSET') {
+      if (pill) pill.textContent = '🌅 Hoàng Hôn';
+      this.scene.background = new THREE.Color('#fb923c');
+      this.scene.fog = new THREE.FogExp2('#f97316', 0.0048);
+      this.hemiLight.color.set('#fed7aa');
+      this.hemiLight.groundColor.set('#7c2d12');
+      this.hemiLight.intensity = 0.82;
+      this.sunLight.color.set('#fdba74');
+      this.sunLight.intensity = 1.25;
+    } else {
+      if (pill) pill.textContent = '🌙 Đêm Sao';
+      this.scene.background = new THREE.Color('#0f172a');
+      this.scene.fog = new THREE.FogExp2('#0f172a', 0.0052);
+      this.hemiLight.color.set('#818cf8');
+      this.hemiLight.groundColor.set('#1e1b4b');
+      this.hemiLight.intensity = 0.55;
+      this.sunLight.color.set('#c7d2fe');
+      this.sunLight.intensity = 0.72;
+    }
+  }
+
+  /**
+   * FEAT-05: Owner-Only 40-Tile Studio & JSON Exporter
+   * Protected by Method 1: WebCrypto SHA-256 Passcode Hash + Secret Shortcut (Ctrl+Shift+E)
+   */
+  private static readonly OWNER_PIN_SHA256_HASH =
+    '59c01efdcf1b63e7709325d63183f1b0e03e01c8afca97a49904919e0b942bd2';
+
+  private async computeSha256Hex(rawText: string): Promise<string> {
+    const encoded = new TextEncoder().encode(rawText);
+    const hashBuffer = await window.crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  private setupOwnerAdminTileStudio(): void {
+    const savedHash = window.sessionStorage.getItem('astrocyberr_owner_sha256');
+    if (savedHash === AstroCyberrMonopolyApp.OWNER_PIN_SHA256_HASH) {
+      this.isAdminUnlocked = true;
+      document.getElementById('btn-open-admin-studio')?.classList.remove('hidden');
+    }
+
+    // Secret 3-click on the "v4.0" version badge inside Settings Popover triggers SHA-256 PIN Gate
+    const versionBadge = document.querySelector('.popover-version');
+    versionBadge?.addEventListener('click', () => {
+      this.versionClickCount += 1;
+      if (this.versionClickCount >= 3) {
+        this.versionClickCount = 0;
+        this.unlockAndOpenAdminStudio();
+      }
+    });
+
+    document.getElementById('btn-open-admin-studio')?.addEventListener('click', () => {
+      this.unlockAndOpenAdminStudio();
+    });
+
+    document.getElementById('btn-close-pin-gate')?.addEventListener('click', () => {
+      document.getElementById('admin-pin-gate-modal')?.classList.add('hidden');
+    });
+
+    const verifyPinAndOpen = async () => {
+      const pinInput = document.getElementById('admin-pin-input') as HTMLInputElement | null;
+      const errEl = document.getElementById('admin-pin-error');
+      if (!pinInput) return;
+
+      const digest = await this.computeSha256Hex(pinInput.value.trim());
+      if (digest === AstroCyberrMonopolyApp.OWNER_PIN_SHA256_HASH) {
+        this.isAdminUnlocked = true;
+        window.sessionStorage.setItem('astrocyberr_owner_sha256', digest);
+        pinInput.value = '';
+        if (errEl) errEl.style.display = 'none';
+        document.getElementById('admin-pin-gate-modal')?.classList.add('hidden');
+        document.getElementById('btn-open-admin-studio')?.classList.remove('hidden');
+        document.getElementById('admin-tile-editor-modal')?.classList.remove('hidden');
+        soundManager.playCoinChime();
+      } else {
+        soundManager.playPayRent();
+        if (errEl) errEl.style.display = 'block';
+      }
+    };
+
+    document.getElementById('btn-submit-pin-gate')?.addEventListener('click', () => {
+      verifyPinAndOpen();
+    });
+
+    document.getElementById('admin-pin-input')?.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        verifyPinAndOpen();
+      }
+    });
+
+    document.getElementById('btn-close-admin-studio')?.addEventListener('click', () => {
+      document.getElementById('admin-tile-editor-modal')?.classList.add('hidden');
+    });
+
+    document.getElementById('btn-admin-lock-studio')?.addEventListener('click', () => {
+      this.isAdminUnlocked = false;
+      window.sessionStorage.removeItem('astrocyberr_owner_sha256');
+      document.getElementById('btn-open-admin-studio')?.classList.add('hidden');
+      document.getElementById('admin-tile-editor-modal')?.classList.add('hidden');
+    });
+
+    const selectEl = document.getElementById('admin-select-tile') as HTMLSelectElement | null;
+    if (!selectEl) return;
+
+    const populateSelect = (selectedIdx = 0) => {
+      selectEl.innerHTML = BOARD_TILES.map(
+        (t) => `<option value="${t.index}">#${t.index} ${t.icon} ${t.name} (${t.type})</option>`
+      ).join('');
+      selectEl.value = `${selectedIdx}`;
+    };
+
+    const loadTileIntoForm = (idx: number) => {
+      const t = BOARD_TILES[idx];
+      if (!t) return;
+      (document.getElementById('admin-tile-name') as HTMLInputElement).value = t.name;
+      (document.getElementById('admin-tile-icon') as HTMLInputElement).value = t.icon;
+      (document.getElementById('admin-tile-price') as HTMLInputElement).value =
+        typeof t.price === 'number' ? `${t.price}` : '';
+      (document.getElementById('admin-tile-upgrade') as HTMLInputElement).value =
+        typeof t.upgradeCost === 'number' ? `${t.upgradeCost}` : '';
+      (document.getElementById('admin-tile-color') as HTMLInputElement).value = t.colorHex;
+      (document.getElementById('admin-rent-0') as HTMLInputElement).value = t.rents
+        ? `${t.rents[0]}`
+        : '';
+      (document.getElementById('admin-rent-1') as HTMLInputElement).value = t.rents
+        ? `${t.rents[1]}`
+        : '';
+      (document.getElementById('admin-rent-2') as HTMLInputElement).value = t.rents
+        ? `${t.rents[2]}`
+        : '';
+      (document.getElementById('admin-rent-3') as HTMLInputElement).value = t.rents
+        ? `${t.rents[3]}`
+        : '';
+      (document.getElementById('admin-tile-reason') as HTMLInputElement).value =
+        t.rentReason ?? '';
+      (document.getElementById('admin-tile-desc') as HTMLTextAreaElement).value = t.description;
+    };
+
+    populateSelect(0);
+    loadTileIntoForm(0);
+
+    selectEl.addEventListener('change', () => {
+      loadTileIntoForm(Number(selectEl.value));
+    });
+
+    document.getElementById('btn-admin-save-tile')?.addEventListener('click', () => {
+      const idx = Number(selectEl.value);
+      const name = (document.getElementById('admin-tile-name') as HTMLInputElement).value.trim();
+      const icon = (document.getElementById('admin-tile-icon') as HTMLInputElement).value.trim();
+      const priceVal = (document.getElementById('admin-tile-price') as HTMLInputElement).value;
+      const upVal = (document.getElementById('admin-tile-upgrade') as HTMLInputElement).value;
+      const colorHex = (document.getElementById('admin-tile-color') as HTMLInputElement).value.trim();
+      const r0 = Number((document.getElementById('admin-rent-0') as HTMLInputElement).value);
+      const r1 = Number((document.getElementById('admin-rent-1') as HTMLInputElement).value);
+      const r2 = Number((document.getElementById('admin-rent-2') as HTMLInputElement).value);
+      const r3 = Number((document.getElementById('admin-rent-3') as HTMLInputElement).value);
+      const rentReason = (document.getElementById('admin-tile-reason') as HTMLInputElement).value.trim();
+      const description = (document.getElementById('admin-tile-desc') as HTMLTextAreaElement).value.trim();
+
+      const hasRents = !Number.isNaN(r0) && r0 > 0;
+      updateBoardTileConfigInPlace(idx, {
+        name: name || BOARD_TILES[idx].name,
+        icon: icon || BOARD_TILES[idx].icon,
+        colorHex: colorHex || BOARD_TILES[idx].colorHex,
+        price: priceVal !== '' ? Number(priceVal) : undefined,
+        upgradeCost: upVal !== '' ? Number(upVal) : undefined,
+        rents: hasRents ? [r0, r1 || r0, r2 || r1 || r0, r3 || r2 || r0] : undefined,
+        rentReason: rentReason || undefined,
+        description: description || BOARD_TILES[idx].description
+      });
+
+      const st = this.engine.getTileState(idx);
+      const ownerColor = st.ownerId ? this.engine.getPlayerById(st.ownerId).color : null;
+      this.islandBoard.refreshSingleTileVisual(idx, ownerColor, st.festivalMultiplier);
+      populateSelect(idx);
+      this.showBottomLeftTilePopup(idx);
+      soundManager.playCoinChime();
+    });
+
+    document.getElementById('btn-admin-export-json')?.addEventListener('click', () => {
+      const specs = getExportableTilesSpecArray();
+      const jsonBlob = new Blob([JSON.stringify(specs, null, 2)], {
+        type: 'application/json;charset=utf-8'
+      });
+      const url = URL.createObjectURL(jsonBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'astrocyberr-tiles-config.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      soundManager.playCoinChime();
+    });
+
+    document.getElementById('btn-admin-reset-default')?.addEventListener('click', () => {
+      resetBoardTilesToDefault();
+      this.syncAllBuildingsToBoard();
+      populateSelect(Number(selectEl.value));
+      loadTileIntoForm(Number(selectEl.value));
+      soundManager.playCoinChime();
+    });
+  }
+
+  private unlockAndOpenAdminStudio(): void {
+    document.getElementById('settings-popover')?.classList.add('hidden');
+    if (this.isAdminUnlocked) {
+      document.getElementById('admin-tile-editor-modal')?.classList.remove('hidden');
+      soundManager.playCoinChime();
+      return;
+    }
+
+    const pinModal = document.getElementById('admin-pin-gate-modal');
+    const pinInput = document.getElementById('admin-pin-input') as HTMLInputElement | null;
+    const errEl = document.getElementById('admin-pin-error');
+    if (errEl) errEl.style.display = 'none';
+    pinModal?.classList.remove('hidden');
+    window.setTimeout(() => pinInput?.focus(), 60);
   }
 
   private delay(ms: number): Promise<void> {

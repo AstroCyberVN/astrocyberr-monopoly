@@ -171,4 +171,39 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(p1.bankrupt).toBe(true);
     expect(p1.gold).toBe(0);
   });
+
+  it('supports Chibi Passive Skills (FEAT-03), Hostile Takeover (FEAT-01), and Emergency Liquidation (FEAT-02)', () => {
+    const engine = new GameEngine('PASS_AND_PLAY', 4);
+    const [steve, alex, creeper, enderman] = engine.getPlayers();
+
+    // 1. Steve (-15% upgrade cost) & Alex (+$240 on Start pass)
+    engine.buyProperty(steve.id, 1);
+    const baseUpCost = engine.getTileConfig(1).upgradeCost ?? 50;
+    expect(engine.getEffectiveUpgradeCost(steve.id, 1)).toBe(Math.round(baseUpCost * 0.85));
+
+    alex.position = 39;
+    const alexBefore = alex.gold;
+    engine.stepPlayerOneTile(alex.id);
+    expect(alex.gold).toBe(alexBefore + 240);
+
+    // 2. Creeper (-20% Royal Tax) & Enderman (+$50 portal crystal bonus)
+    expect(engine.getEffectiveTaxAmount(creeper.id, 200)).toBe(160);
+    const enderBefore = enderman.gold;
+    engine.teleportFromEndPortal(enderman.id, 5);
+    expect(enderman.gold).toBe(enderBefore + 50);
+
+    // 3. Hostile Takeover (FEAT-01) on Steve's Tile #1 by Alex
+    const buyoutCost = engine.getBuyoutCost(1);
+    expect(buyoutCost).toBeGreaterThan(0);
+    const takeover = engine.buyoutOpponentProperty(alex.id, 1);
+    expect(takeover.ok).toBe(true);
+    expect(engine.getTileState(1).ownerId).toBe(alex.id);
+
+    // 4. Emergency Liquidation (FEAT-02) of Alex's Tile #1 at 75% value
+    const liqList = engine.getPlayerLiquidatableProperties(alex.id);
+    expect(liqList.some((item) => item.tileIndex === 1)).toBe(true);
+    const sold = engine.liquidateProperty(alex.id, 1);
+    expect(sold.ok).toBe(true);
+    expect(engine.getTileState(1).ownerId).toBeNull();
+  });
 });

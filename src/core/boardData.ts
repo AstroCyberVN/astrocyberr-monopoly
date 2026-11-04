@@ -1,4 +1,4 @@
-import { TILES_CONFIG_40 } from '../config/tilesConfig';
+import { RawTileConfigItem, TILES_CONFIG_40 } from '../config/tilesConfig';
 
 export const BOARD_SIZE = 40;
 
@@ -34,6 +34,8 @@ export interface CharacterConfig {
   title: string;
   locomotion: LocomotionType;
   locomotionDescription: string;
+  passiveName: string;
+  passiveDescription: string;
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
@@ -47,6 +49,8 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     title: 'Thợ Mỏ Chibi',
     locomotion: 'PARABOLA_HOP',
     locomotionDescription: 'Nhảy lò cò Parabol + Squash & Stretch + Hạt bụi trắng',
+    passiveName: '🔨 Thợ Xây Lành Nghề',
+    passiveDescription: 'Giảm 15% chi phí nâng cấp công trình trên mọi ô đất.',
     primaryColor: '#06b6d4',
     secondaryColor: '#3b82f6',
     accentColor: '#fde047',
@@ -58,6 +62,8 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     title: 'Kiến Trúc Sư Chibi',
     locomotion: 'PARABOLA_HOP',
     locomotionDescription: 'Nhảy lò cò Parabol + Squash & Stretch + Bụi trắng ánh lá',
+    passiveName: '🧭 Nhà Thám Hiểm',
+    passiveDescription: 'Nhận thêm +$40 thưởng năng lượng mỗi khi đi qua Ô Khởi Hành (+$240).',
     primaryColor: '#22c55e',
     secondaryColor: '#f97316',
     accentColor: '#86efac',
@@ -69,6 +75,8 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     title: 'Quái Vật TNT Chibi',
     locomotion: 'TNT_EXPLOSION',
     locomotionDescription: 'Phồng người nhấp nháy rồi nổ BÙM như TNT và hồi sinh tại ô tiếp theo!',
+    passiveName: '🧨 Giáp Thuốc Nổ',
+    passiveDescription: 'Giảm 20% mức phí nộp tại Ô Thuế Hoàng Gia & Thuế Xa Xỉ.',
     primaryColor: '#4ade80',
     secondaryColor: '#166534',
     accentColor: '#ef4444',
@@ -80,6 +88,8 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     title: 'Lữ Khách Không Gian',
     locomotion: 'ENDER_TELEPORT',
     locomotionDescription: 'Dịch chuyển tức thời từng ô kèm hiệu ứng vòng xoáy hạt tím!',
+    passiveName: '🔮 Bậc Thầy Không Gian',
+    passiveDescription: 'Nhận thêm +$50 Tinh Thể Ender mỗi khi bay qua Cổng The End hoặc Nether.',
     primaryColor: '#a855f7',
     secondaryColor: '#18181b',
     accentColor: '#d8b4fe',
@@ -105,6 +115,17 @@ export const COLOR_GROUP_LABELS: Record<ColorGroupId, string> = {
   NETHER: 'Quận Ngân Hàng Quốc Tế',
   END_CITY: 'Đại Lộ Tỷ Phú Thượng Lưu'
 };
+
+export const COLOR_GROUP_ORDER: { id: ColorGroupId; hex: string; label: string }[] = [
+  { id: 'PLAINS', hex: '#a16207', label: 'Quận Phố Cổ' },
+  { id: 'OAK_FOREST', hex: '#38bdf8', label: 'Quận Ánh Sáng' },
+  { id: 'SWAMP', hex: '#ec4899', label: 'Quận Giải Trí' },
+  { id: 'DESERT', hex: '#f97316', label: 'Quận Khởi Nghiệp' },
+  { id: 'SNOWY_PEAKS', hex: '#ef4444', label: 'Quận Thể Thao' },
+  { id: 'CHERRY_GROVE', hex: '#eab308', label: 'Quận Bến Cảng' },
+  { id: 'NETHER', hex: '#22c55e', label: 'Quận Ngân Hàng' },
+  { id: 'END_CITY', hex: '#6366f1', label: 'Đại Lộ Thượng Lưu' }
+];
 
 export interface TileConfig {
   index: number;
@@ -176,10 +197,85 @@ export function getPerimeterGridCoords40(index: number): {
   };
 }
 
-export const BOARD_TILES: TileConfig[] = TILES_CONFIG_40.map((tile) => ({
+const CUSTOM_TILES_STORAGE_KEY = 'astrocyberr_custom_tiles_v1';
+
+function loadMergedTileSpecs(): RawTileConfigItem[] {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return TILES_CONFIG_40.map((t) => structuredClone(t));
+  }
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_TILES_STORAGE_KEY);
+    if (!raw) return TILES_CONFIG_40.map((t) => structuredClone(t));
+    const parsed = JSON.parse(raw) as RawTileConfigItem[];
+    if (!Array.isArray(parsed) || parsed.length !== BOARD_SIZE) {
+      return TILES_CONFIG_40.map((t) => structuredClone(t));
+    }
+    return TILES_CONFIG_40.map((base, idx) => ({
+      ...base,
+      ...parsed[idx],
+      index: idx
+    }));
+  } catch {
+    return TILES_CONFIG_40.map((t) => structuredClone(t));
+  }
+}
+
+export const BOARD_TILES: TileConfig[] = loadMergedTileSpecs().map((tile) => ({
   ...tile,
   ...getPerimeterGridCoords40(tile.index)
 }));
+
+export function updateBoardTileConfigInPlace(
+  tileIndex: number,
+  patch: Partial<RawTileConfigItem>
+): TileConfig {
+  const idx = ((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+  const current = BOARD_TILES[idx];
+  const updated: TileConfig = {
+    ...current,
+    ...patch,
+    index: idx,
+    ...getPerimeterGridCoords40(idx)
+  };
+  BOARD_TILES[idx] = updated;
+
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const specs = getExportableTilesSpecArray();
+    window.localStorage.setItem(CUSTOM_TILES_STORAGE_KEY, JSON.stringify(specs));
+  }
+  return updated;
+}
+
+export function resetBoardTilesToDefault(): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    window.localStorage.removeItem(CUSTOM_TILES_STORAGE_KEY);
+  }
+  TILES_CONFIG_40.forEach((base, idx) => {
+    BOARD_TILES[idx] = {
+      ...structuredClone(base),
+      ...getPerimeterGridCoords40(idx)
+    };
+  });
+}
+
+export function getExportableTilesSpecArray(): RawTileConfigItem[] {
+  return BOARD_TILES.map((t) => {
+    const spec: RawTileConfigItem = {
+      index: t.index,
+      name: t.name,
+      type: t.type,
+      icon: t.icon,
+      colorHex: t.colorHex,
+      description: t.description
+    };
+    if (t.colorGroup) spec.colorGroup = t.colorGroup;
+    if (typeof t.price === 'number') spec.price = t.price;
+    if (typeof t.upgradeCost === 'number') spec.upgradeCost = t.upgradeCost;
+    if (t.rents) spec.rents = [...t.rents] as [number, number, number, number];
+    if (t.rentReason) spec.rentReason = t.rentReason;
+    return spec;
+  });
+}
 
 export interface ChestCard {
   id: string;

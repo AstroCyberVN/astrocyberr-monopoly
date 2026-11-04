@@ -503,6 +503,13 @@ export class IslandBoard3D {
   private elevatedTileIndex: number | null = null;
   private elevatedGlowBase?: THREE.Mesh;
 
+  // UPG-05: Whimsy Easter Egg clickables (Central Beacon & Courtyard Trees)
+  private whimsyClickables: THREE.Object3D[] = [];
+  private beaconColorIdx = 0;
+
+  // UX-03: 3D Tile Picker Highlight Rings (for End Portal #30 & Festival #20)
+  private pickerHighlightGroup = new THREE.Group();
+
   constructor(scene: THREE.Scene, particles: ParticleSystem3D) {
     this.particles = particles;
     this.ironBlockTexture = createMinecraftIronBlockTexture();
@@ -522,6 +529,8 @@ export class IslandBoard3D {
     this.buildSatelliteMiniIslands();
     this.buildFloatingClouds();
     this.initTargetBeaconWithAuthenticTextures();
+    this.pickerHighlightGroup.name = 'Direct3DTilePickerRings';
+    this.root.add(this.pickerHighlightGroup);
   }
 
   private buildRichPastelOceanAndBoats(): void {
@@ -842,6 +851,10 @@ export class IslandBoard3D {
     );
     centerGlass.position.set(0, 0.32, 0);
     centerBeaconBlock.add(centerObsidian, centerStar, centerGlass);
+    centerBeaconBlock.userData = { whimsyType: 'BEACON' };
+    centerGlass.userData = { whimsyType: 'BEACON' };
+    centerObsidian.userData = { whimsyType: 'BEACON' };
+    this.whimsyClickables.push(centerGlass, centerObsidian);
     this.root.add(centerBeaconBlock);
 
     const beaconMat = new THREE.MeshBasicMaterial({
@@ -856,6 +869,8 @@ export class IslandBoard3D {
     centerBeamGeo.translate(0, 2.4, 0);
     this.beaconBeam = new THREE.Mesh(centerBeamGeo, beaconMat);
     this.beaconBeam.position.set(0, 1.15, 0);
+    this.beaconBeam.userData = { whimsyType: 'BEACON' };
+    this.whimsyClickables.push(this.beaconBeam);
     this.root.add(this.beaconBeam);
 
     const railRadius = 6.8;
@@ -961,6 +976,13 @@ export class IslandBoard3D {
     canopyTop.position.y = 2.62;
     canopyTop.castShadow = true;
     g.add(canopyTop);
+
+    // UPG-05: Make courtyard trees clickable for Whimsy leaf-shake & Golden Apple drop
+    g.userData = { whimsyType: 'TREE' };
+    canopy1.userData = { whimsyType: 'TREE', treeGroup: g };
+    canopy2.userData = { whimsyType: 'TREE', treeGroup: g };
+    canopyTop.userData = { whimsyType: 'TREE', treeGroup: g };
+    this.whimsyClickables.push(canopy1, canopy2, canopyTop);
 
     return g;
   }
@@ -1637,6 +1659,7 @@ export class IslandBoard3D {
     const prev = this.buildingGroups.get(tileIndex);
     if (prev && tileContainer) {
       tileContainer.remove(prev);
+      this.disposeObject3D(prev);
       this.buildingGroups.delete(tileIndex);
     }
 
@@ -1667,11 +1690,13 @@ export class IslandBoard3D {
   public clearAllBuildings(): void {
     this.buildingGroups.forEach((grp, idx) => {
       this.tileContainerGroups[idx]?.remove(grp);
+      this.disposeObject3D(grp);
     });
     this.buildingGroups.clear();
     this.crownMeshes = [];
     this.hideTargetTileBeacon();
     this.highlightTile(null);
+    this.setPickerHighlightTiles([]);
 
     for (const tile of BOARD_TILES) {
       const tileMesh = this.tileMeshes[tile.index];
@@ -1682,6 +1707,121 @@ export class IslandBoard3D {
         topMat.needsUpdate = true;
       }
     }
+  }
+
+  /**
+   * FIX-02: Disposes child geometries and materials to prevent WebGL GPU memory leaks
+   */
+  private disposeObject3D(obj: THREE.Object3D): void {
+    obj.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material?.dispose();
+        }
+      }
+    });
+  }
+
+  /**
+   * FEAT-05: Refreshes a single tile's 3D texture immediately when edited in the Admin Tile Config Inspector
+   */
+  public refreshSingleTileVisual(
+    tileIndex: number,
+    ownerColorHex: string | null = null,
+    festivalMultiplier = 1
+  ): void {
+    const idx = ((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    const tile = BOARD_TILES[idx];
+    const tileMesh = this.tileMeshes[idx];
+    if (tileMesh && Array.isArray(tileMesh.material)) {
+      const topMat = tileMesh.material[2] as THREE.MeshStandardMaterial;
+      topMat.map?.dispose();
+      topMat.map = createHighResTileTexture(tile, festivalMultiplier, ownerColorHex);
+      topMat.needsUpdate = true;
+    }
+  }
+
+  /**
+   * UX-03: Highlights valid 3D target tiles directly on the board (for End Portal #30 & Festival #20)
+   */
+  public setPickerHighlightTiles(tileIndices: number[]): void {
+    while (this.pickerHighlightGroup.children.length > 0) {
+      const child = this.pickerHighlightGroup.children[0];
+      this.pickerHighlightGroup.remove(child);
+      this.disposeObject3D(child);
+    }
+
+    if (tileIndices.length === 0) return;
+
+    const ringGeo = new THREE.BoxGeometry(2.14, 0.14, 2.14);
+    for (const rawIdx of tileIndices) {
+      const idx = ((rawIdx % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+      const tile = BOARD_TILES[idx];
+      const mat = new THREE.MeshBasicMaterial({
+        color: '#fde047',
+        transparent: true,
+        opacity: 0.55,
+        wireframe: false
+      });
+      const marker = new THREE.Mesh(ringGeo.clone(), mat);
+      marker.position.set(tile.gridX * TILE_SPACING, 0.63, tile.gridZ * TILE_SPACING);
+      this.pickerHighlightGroup.add(marker);
+    }
+    ringGeo.dispose();
+  }
+
+  /**
+   * UPG-05: Whimsy Easter Egg clickables getter & interactions
+   */
+  public getWhimsyClickables(): THREE.Object3D[] {
+    return this.whimsyClickables;
+  }
+
+  public cycleBeaconBeamColor(): { name: string; hex: string } {
+    const palette = [
+      { name: 'Ngọc Lục Bảo (Emerald)', hex: '#34d399' },
+      { name: 'Kim Cương Xanh (Diamond)', hex: '#38bdf8' },
+      { name: 'Hoàng Kim (Gold)', hex: '#fbbf24' },
+      { name: 'Thạch Anh Tím (Amethyst)', hex: '#c084fc' },
+      { name: 'Đá Đỏ (Redstone)', hex: '#f87171' }
+    ];
+    this.beaconColorIdx = (this.beaconColorIdx + 1) % palette.length;
+    const chosen = palette[this.beaconColorIdx];
+
+    if (this.beaconBeam) {
+      (this.beaconBeam.material as THREE.MeshBasicMaterial).color.set(chosen.hex);
+    }
+    if (this.targetBeamOuter) {
+      (this.targetBeamOuter.material as THREE.MeshBasicMaterial).color.set(chosen.hex);
+    }
+    this.particles.spawnBuildingPopSparkles(new THREE.Vector3(0, 2.2, 0), chosen.hex);
+    soundManager.playCoinChime();
+    return chosen;
+  }
+
+  public triggerTreeWhimsy(treeGroup: THREE.Object3D): void {
+    soundManager.playStepBoing(2);
+    gsap.fromTo(
+      treeGroup.rotation,
+      { z: -0.14 },
+      {
+        z: 0.14,
+        duration: 0.09,
+        yoyo: true,
+        repeat: 5,
+        onComplete: () => {
+          treeGroup.rotation.z = 0;
+        }
+      }
+    );
+    const worldPos = new THREE.Vector3();
+    treeGroup.getWorldPosition(worldPos);
+    worldPos.y += 1.8;
+    this.particles.spawnBuildingPopSparkles(worldPos, '#fbbf24');
   }
 
   private createBuildingMeshForLevel(
@@ -1839,6 +1979,15 @@ export class IslandBoard3D {
     for (const crown of this.crownMeshes) {
       crown.rotation.y = elapsedTime * 2.2;
       crown.position.y = 1.72 + Math.sin(elapsedTime * 3.5) * 0.07;
+    }
+
+    if (this.pickerHighlightGroup.children.length > 0) {
+      const pulse = 0.35 + Math.sin(elapsedTime * 5.0) * 0.25;
+      this.pickerHighlightGroup.children.forEach((child) => {
+        const mesh = child as THREE.Mesh;
+        const mat = mesh.material as THREE.MeshBasicMaterial;
+        if (mat) mat.opacity = pulse;
+      });
     }
   }
 }

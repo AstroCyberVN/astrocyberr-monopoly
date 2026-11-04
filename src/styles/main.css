@@ -1470,6 +1470,295 @@ body,
   box-shadow: 0 6px 18px rgba(239, 68, 68, 0.45) !important;
 }
 
+/* ==========================================================================
+   FIX-01: Tabular Numerals for Currency & Rolling Counters (unslop Type rule)
+   ========================================================================== */
+.player-rect-coin,
+.coin-delta-badge,
+#roll-power-pct,
+.fusion-total-badge,
+.fusion-die-badge,
+.turn-round,
+.rent-invoice-row strong,
+.rent-invoice-row span {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   UX-01: Unslop Quiet Chrome (1px Hairline Borders on Static HUD Chrome)
+   ========================================================================== */
+#top-hud,
+.cam-mode-segmented,
+.tile-popup-bottom-left,
+.log-drawer-panel {
+  border-width: 1px;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+/* ==========================================================================
+   UPG-01: Time of Day Pill (Day / Sunset / Starry Night)
+   ========================================================================== */
+.time-of-day-pill {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.65);
+  color: #fde047;
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.time-of-day-pill:hover {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: #fde047;
+}
+
+/* ==========================================================================
+   UX-02: 8 Color Group Ownership Dots & Passive Skill Pill on Player Cards
+   ========================================================================== */
+.player-color-dots-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.color-group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.color-group-dot.owned {
+  background: var(--dot-color, #34d399);
+  border-color: rgba(255, 255, 255, 0.75);
+}
+
+.color-group-dot.monopoly {
+  background: var(--dot-color, #34d399);
+  border-color: #fde047;
+  box-shadow: 0 0 6px #fde047;
+  transform: scale(1.22);
+}
+
+.status-pill-passive {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+/* ==========================================================================
+   FEAT-01 & FEAT-02: Hostile Takeover [B] Button & Emergency Liquidation Box
+   ========================================================================== */
+.modal-btn.buyout {
+  background: linear-gradient(135deg, #8b5cf6, #6d28d9) !important;
+  border: 1px solid #c4b5fd !important;
+  color: #ffffff !important;
+  box-shadow: 0 6px 18px rgba(139, 92, 246, 0.4) !important;
+}
+
+.modal-btn.buyout:hover {
+  filter: brightness(1.1);
+}
+
+.emergency-liquidation-box {
+  background: rgba(127, 29, 29, 0.25);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.emergency-liquidation-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #fca5a5;
+}
+
+.liquidation-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 11.5px;
+}
+
+.btn-sell-property {
+  border: 1px solid #34d399;
+  background: rgba(16, 185, 129, 0.22);
+  color: #6ee7b7;
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-sell-property:hover {
+  background: #10b981;
+  color: #052e16;
+}
+
+/* ==========================================================================
+   FEAT-05: Owner-Only Admin Tile Config Studio & JSON Exporter Modal
+   ========================================================================== */
+.admin-studio-trigger-btn {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid #c084fc;
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.32), rgba(79, 70, 229, 0.32));
+  color: #f3e8ff;
+  font-family: var(--font-main);
+  font-size: 11.5px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-studio-trigger-btn:hover {
+  background: linear-gradient(135deg, #9333ea, #4f46e5);
+  color: #ffffff;
+}
+
+.admin-tile-editor-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.admin-tile-editor-modal.hidden {
+  display: none !important;
+}
+
+.admin-editor-card {
+  width: min(640px, 95vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.97);
+  border: 1px solid rgba(192, 132, 252, 0.55);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 10px;
+}
+
+.admin-editor-header h3 {
+  font-size: 14px;
+  font-weight: 900;
+  color: #e9d5ff;
+}
+
+.admin-editor-header p {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.admin-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.admin-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-field-row label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #cbd5e1;
+}
+
+.admin-input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(30, 41, 59, 0.9);
+  color: #f8fafc;
+  font-family: var(--font-main);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.admin-grid-2col {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 8px;
+}
+
+.admin-grid-3col {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.admin-grid-4col {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.admin-editor-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 10px;
+}
+
+/* ==========================================================================
+   UX-04: Reduced Motion Accessibility Support
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body.reduced-motion .player-rect-card.flash-gain,
+body.reduced-motion .player-rect-card.flash-loss,
+body.reduced-motion .dice-icon-anim {
+  animation: none !important;
+}
+
 @media (max-width: 820px) {
   #players-sidebar {
     width: 168px;

@@ -625,6 +625,135 @@ export class ChibiCharacters3D {
     });
   }
 
+  /**
+   * UPG-02: 3D Chibi Emote Bubble & Celebration / Slump Animation
+   * Properly disposes temporary CanvasTexture and SpriteMaterial (FIX-02).
+   */
+  public playEmoteReaction(
+    id: CharacterId,
+    labelText: string,
+    mood: 'HAPPY' | 'SAD' | 'WAVE' | 'TAKEOVER' = 'HAPPY'
+  ): void {
+    const rig = this.rigs.get(id);
+    if (!rig || rig.eliminated) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 96;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle =
+        mood === 'SAD'
+          ? 'rgba(127, 29, 29, 0.92)'
+          : mood === 'TAKEOVER'
+            ? 'rgba(88, 28, 135, 0.94)'
+            : 'rgba(6, 78, 59, 0.92)';
+      ctx.strokeStyle =
+        mood === 'SAD' ? '#f87171' : mood === 'TAKEOVER' ? '#c084fc' : '#34d399';
+      ctx.lineWidth = 4;
+
+      ctx.beginPath();
+      ctx.roundRect(12, 10, 232, 68, 22);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 28px "Be Vietnam Pro", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(labelText, 128, 45);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthTest: false
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.renderOrder = 30;
+    sprite.scale.set(0.01, 0.01, 0.01);
+    sprite.position.set(0, 1.85, 0);
+    rig.root.add(sprite);
+
+    gsap.to(sprite.scale, {
+      x: 2.1,
+      y: 0.78,
+      z: 1,
+      duration: 0.25,
+      ease: 'back.out(2)'
+    });
+
+    gsap.to(sprite.position, {
+      y: 2.45,
+      duration: 1.35,
+      ease: 'power1.out'
+    });
+
+    gsap.to(mat, {
+      opacity: 0,
+      delay: 0.95,
+      duration: 0.4,
+      onComplete: () => {
+        rig.root.remove(sprite);
+        texture.dispose();
+        mat.dispose();
+      }
+    });
+
+    // Character body pose reaction
+    if (mood === 'HAPPY' || mood === 'TAKEOVER') {
+      gsap.fromTo(
+        rig.visualGroup.position,
+        { y: 0 },
+        {
+          y: 0.55,
+          duration: 0.18,
+          yoyo: true,
+          repeat: 3,
+          ease: 'power1.out'
+        }
+      );
+      gsap.fromTo(
+        rig.leftArmPivot.rotation,
+        { x: 0 },
+        { x: -2.4, duration: 0.18, yoyo: true, repeat: 3 }
+      );
+      gsap.fromTo(
+        rig.rightArmPivot.rotation,
+        { x: 0 },
+        { x: -2.4, duration: 0.18, yoyo: true, repeat: 3 }
+      );
+    } else if (mood === 'SAD') {
+      gsap.fromTo(
+        rig.visualGroup.scale,
+        { x: 1, y: 1, z: 1 },
+        {
+          x: 1.16,
+          y: 0.72,
+          z: 1.16,
+          duration: 0.28,
+          yoyo: true,
+          repeat: 1,
+          ease: 'sine.inOut'
+        }
+      );
+    } else if (mood === 'WAVE') {
+      gsap.fromTo(
+        rig.rightArmPivot.rotation,
+        { z: 0, x: 0 },
+        {
+          x: -2.2,
+          z: -0.45,
+          duration: 0.16,
+          yoyo: true,
+          repeat: 3
+        }
+      );
+    }
+  }
+
   /** Subtle idle breathing animation for all characters */
   public updateIdle(elapsedTime: number): void {
     this.rigs.forEach((rig) => {

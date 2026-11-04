@@ -55,10 +55,19 @@ export interface TileResolutionResult {
   ownerName?: string;
   rentReason?: string;
   canAffordRent?: boolean;
+  buyoutCost?: number | null;
+  canBuyoutAfterRent?: boolean;
   payerPrevGold?: number;
   ownerPrevGold?: number;
   chestCard?: ChestCard;
   message: string;
+}
+
+export interface LiquidatablePropertyInfo {
+  tileIndex: number;
+  name: string;
+  level: number;
+  resaleValue: number;
 }
 
 export interface ConfirmedRentPaymentResult {
@@ -232,6 +241,25 @@ export class GameEngine {
     );
   }
 
+  public getStartBonus(player: PlayerState): number {
+    // FEAT-03: Alex's passive ("Nhà Thám Hiểm") grants +$40 extra when passing Start (+$240 total)
+    return player.characterId === 'alex' ? 240 : 200;
+  }
+
+  public getEffectiveUpgradeCost(playerId: string, tileIndex: number): number {
+    const player = this.getPlayerById(playerId);
+    const cfg = this.getTileConfig(tileIndex);
+    const baseCost = cfg.upgradeCost ?? 80;
+    // FEAT-03: Steve's passive ("Thợ Xây Lành Nghề") reduces building upgrade cost by 15%
+    return player.characterId === 'steve' ? Math.round(baseCost * 0.85) : baseCost;
+  }
+
+  public getEffectiveTaxAmount(playerId: string, baseTax: number): number {
+    const player = this.getPlayerById(playerId);
+    // FEAT-03: Creeper's passive ("Giáp Thuốc Nổ") reduces Royal/Luxury Tax by 20%
+    return player.characterId === 'creeper' ? Math.round(baseTax * 0.8) : baseTax;
+  }
+
   public stepPlayerOneTile(playerId: string): {
     oldPosition: number;
     newPosition: number;
@@ -244,11 +272,31 @@ export class GameEngine {
 
     const passedStart = newPosition === 0;
     if (passedStart) {
-      player.gold += 200;
-      this.addLog(`🚩 ${player.emoji} ${player.name} đi qua Đại Lộ Khởi Hành và nhận +$200!`);
+      const bonus = this.getStartBonus(player);
+      player.gold += bonus;
+      this.addLog(
+        `🚩 ${player.emoji} ${player.name} đi qua Đại Lộ Khởi Hành và nhận +$${bonus}${
+          player.characterId === 'alex' ? ' (Nội tại Alex +$40)' : ''
+        }!`
+      );
     }
 
     return { oldPosition, newPosition, passedStart };
+  }
+
+  public getPlayerColorGroupOwnership(
+    ownerId: string,
+    colorGroup: ColorGroupId
+  ): { ownedCount: number; totalCount: number; isMonopoly: boolean } {
+    const groupTiles = BOARD_TILES.filter(
+      (t) => t.type === 'PROPERTY' && t.colorGroup === colorGroup
+    );
+    const ownedCount = groupTiles.filter((t) => this.tiles[t.index].ownerId === ownerId).length;
+    return {
+      ownedCount,
+      totalCount: groupTiles.length,
+      isMonopoly: groupTiles.length > 0 && ownedCount === groupTiles.length
+    };
   }
 
   public ownsFullColorGroup(ownerId: string, colorGroup?: ColorGroupId): boolean {
@@ -361,7 +409,7 @@ export class GameEngine {
       };
     }
 
-    const cost = cfg.upgradeCost ?? 80;
+    const cost = this.getEffectiveUpgradeCost(playerId, tileIndex);
     if (player.gold < cost) {
       return { ok: false, newLevel: state.level, reason: 'Không đủ $ để nâng cấp công trình.' };
     }
@@ -376,9 +424,143 @@ export class GameEngine {
           : 'Lâu Đài Vương Miện';
 
     this.addLog(
-      `⬆️ ${player.emoji} ${player.name} nâng cấp [${cfg.name}] lên Cấp ${state.level} (${tierLabel}) (-$${cost})!`
+      `⬆️ ${player.emoji} ${player.name} nâng cấp [${cfg.name}] lên Cấp ${state.level} (${tierLabel}) (-$${cost}${
+        player.characterId === 'steve' ? ' • Nội tại Steve -15%' : ''
+      })!`
     );
     return { ok: true, newLevel: state.level };
+  }
+
+  /**
+   * FEAT-01: Hostile Takeover / Buyout calculation.
+   * Properties at Level 4 (Castle) cannot be bought out!
+   */
+  public getBuyoutCost(tileIndex: number): number | null {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    if (!state.ownerId) return null;
+    if (cfg.type !== 'PROPERTY' && cfg.type !== 'RAILROAD' && cfg.type !== 'UTILITY') {
+      return null;
+    }
+    if (cfg.type === 'PROPERTY' && state.level >= 4) {
+      return null; // Crown Castles are immune to Hostile Takeover
+    }
+    const basePrice = cfg.price ?? 100;
+    const investedUpgrades =
+      cfg.type === 'PROPERTY' ? Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 80) : 0;
+    return Math.round((basePrice + investedUpgrades) * 1.8);
+  }
+
+  public buyoutOpponentProperty(
+    buyerId: string,
+    tileIndex = this.getPlayerById(buyerId).position
+  ): {
+    ok: boolean;
+    buyoutCost: number;
+    previousOwnerId: string;
+    previousOwnerName: string;
+    reason?: string;
+  } {
+    const buyer = this.getPlayerById(buyerId);
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    if (!state.ownerId || state.ownerId === buyer.id) {
+      return {
+        ok: false,
+        buyoutCost: 0,
+        previousOwnerId: '',
+        previousOwnerName: '',
+        reason: 'Ô đất này không thuộc sở hữu đối thủ.'
+      };
+    }
+
+    const buyoutCost = this.getBuyoutCost(tileIndex);
+    if (buyoutCost === null) {
+      return {
+        ok: false,
+        buyoutCost: 0,
+        previousOwnerId: state.ownerId,
+        previousOwnerName: '',
+        reason: 'Lâu Đài Vương Miện (Cấp 4) bất khả xâm phạm, không thể mua đứt!'
+      };
+    }
+
+    if (buyer.gold < buyoutCost) {
+      return {
+        ok: false,
+        buyoutCost,
+        previousOwnerId: state.ownerId,
+        previousOwnerName: '',
+        reason: 'Không đủ $ để thôn tính ô đất này.'
+      };
+    }
+
+    const previousOwner = this.getPlayerById(state.ownerId);
+    buyer.gold -= buyoutCost;
+    previousOwner.gold += buyoutCost;
+    state.ownerId = buyer.id;
+
+    this.addLog(
+      `⚔️ THÔN TÍNH! ${buyer.emoji} ${buyer.name} chi $${buyoutCost} mua đứt [${cfg.name}] từ tay ${previousOwner.emoji} ${previousOwner.name}!`
+    );
+
+    return {
+      ok: true,
+      buyoutCost,
+      previousOwnerId: previousOwner.id,
+      previousOwnerName: previousOwner.name
+    };
+  }
+
+  /**
+   * FEAT-02: Emergency Property Liquidation (75% of base price + upgrades)
+   */
+  public getLiquidationValue(tileIndex: number): number {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    const basePrice = cfg.price ?? 100;
+    const upgradeTotal =
+      cfg.type === 'PROPERTY' ? Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 60) : 0;
+    return Math.round((basePrice + upgradeTotal) * 0.75);
+  }
+
+  public getPlayerLiquidatableProperties(playerId: string): LiquidatablePropertyInfo[] {
+    return this.tiles
+      .filter((t) => t.ownerId === playerId)
+      .map((t) => {
+        const cfg = this.getTileConfig(t.index);
+        return {
+          tileIndex: t.index,
+          name: cfg.name,
+          level: t.level,
+          resaleValue: this.getLiquidationValue(t.index)
+        };
+      })
+      .sort((a, b) => a.resaleValue - b.resaleValue);
+  }
+
+  public liquidateProperty(
+    playerId: string,
+    tileIndex: number
+  ): { ok: boolean; resaleValue: number; newGold: number } {
+    const player = this.getPlayerById(playerId);
+    const state = this.getTileState(tileIndex);
+    const cfg = this.getTileConfig(tileIndex);
+    if (state.ownerId !== playerId) {
+      return { ok: false, resaleValue: 0, newGold: player.gold };
+    }
+
+    const resaleValue = this.getLiquidationValue(tileIndex);
+    player.gold += resaleValue;
+    state.ownerId = null;
+    state.level = 0;
+    state.festivalMultiplier = 1;
+
+    this.addLog(
+      `🏦 ${player.emoji} ${player.name} thanh lý khẩn cấp [${cfg.name}] thu về +$${resaleValue} (75% giá trị)!`
+    );
+
+    return { ok: true, resaleValue, newGold: player.gold };
   }
 
   public applyFestivalBoost(playerId: string, tileIndex: number): { ok: boolean } {
@@ -406,14 +588,24 @@ export class GameEngine {
     const passedStart = target !== oldPos && (target === 0 || target < oldPos);
     player.position = target;
 
+    const enderBonus = player.characterId === 'enderman' ? 50 : 0;
+    if (enderBonus > 0) {
+      player.gold += enderBonus;
+    }
+
     if (passedStart) {
-      player.gold += 200;
+      const startBonus = this.getStartBonus(player);
+      player.gold += startBonus;
       this.addLog(
-        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}] (Qua Khởi Hành +$200)!`
+        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}] (Qua Khởi Hành +$${startBonus}${
+          enderBonus > 0 ? ` • Nội tại Enderman +$${enderBonus}` : ''
+        })!`
       );
     } else {
       this.addLog(
-        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}]!`
+        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}]${
+          enderBonus > 0 ? ` (Nội tại Enderman +$${enderBonus})` : ''
+        }!`
       );
     }
 
@@ -437,16 +629,22 @@ export class GameEngine {
 
     const passedStart = oldPos + overworldSteps >= BOARD_SIZE;
     player.position = target;
-    player.gold += 120; // Piglin Bastion Gold Bonus
+    const enderBonus = player.characterId === 'enderman' ? 50 : 0;
+    player.gold += 120 + enderBonus; // Piglin Bastion Gold Bonus (+ Enderman Passive)
 
     if (passedStart) {
-      player.gold += 200;
+      const startBonus = this.getStartBonus(player);
+      player.gold += startBonus;
       this.addLog(
-        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin & +$200 Qua Khởi Hành)!`
+        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin & +$${startBonus} Qua Khởi Hành${
+          enderBonus > 0 ? ` • Nội tại Enderman +$${enderBonus}` : ''
+        })!`
       );
     } else {
       this.addLog(
-        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin)!`
+        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin${
+          enderBonus > 0 ? ` • Nội tại Enderman +$${enderBonus}` : ''
+        })!`
       );
     }
 
@@ -586,14 +784,16 @@ export class GameEngine {
 
         if (state.ownerId === player.id) {
           if (cfg.type === 'PROPERTY' && state.level < 4) {
-            const upCost = cfg.upgradeCost ?? 80;
+            const upCost = this.getEffectiveUpgradeCost(player.id, tileIndex);
             if (player.gold >= upCost) {
               return {
                 action: 'CAN_UPGRADE_PROPERTY',
                 tileIndex,
                 tileName: cfg.name,
                 amount: upCost,
-                message: `Chào mừng về lãnh địa! Nâng cấp [${cfg.name}] lên Cấp ${state.level + 1} với $${upCost}?`
+                message: `Chào mừng về lãnh địa! Nâng cấp [${cfg.name}] lên Cấp ${state.level + 1} với $${upCost}${
+                  player.characterId === 'steve' ? ' (Đã giảm 15% nội tại Steve)' : ''
+                }?`
               };
             }
           }
@@ -609,6 +809,9 @@ export class GameEngine {
         const rent = this.calculateRent(tileIndex);
         const rentReason = this.getFormattedRentReason(tileIndex);
         const canAffordRent = player.gold >= rent;
+        const buyoutCost = this.getBuyoutCost(tileIndex);
+        const canBuyoutAfterRent =
+          buyoutCost !== null && player.gold >= rent + buyoutCost;
         const payerPrevGold = player.gold;
         const ownerPrevGold = owner.gold;
 
@@ -630,11 +833,13 @@ export class GameEngine {
           ownerName: owner.name,
           rentReason,
           canAffordRent,
+          buyoutCost,
+          canBuyoutAfterRent,
           payerPrevGold,
           ownerPrevGold,
           message: canAffordRent
             ? `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên sẽ phải trả $${rent}!`
-            : `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên phải trả $${rent}, nhưng bạn chỉ còn $${player.gold} — Không đủ khả năng thanh toán (Phá Sản)!`
+            : `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên phải trả $${rent}, nhưng bạn chỉ còn $${player.gold} — Không đủ tiền mặt!`
         };
       }
 
@@ -708,10 +913,15 @@ export class GameEngine {
       }
 
       case 'ROYAL_TAX': {
-        const tax = cfg.price ?? 120;
+        const baseTax = cfg.price ?? 120;
+        const tax = this.getEffectiveTaxAmount(player.id, baseTax);
         const prevGold = player.gold;
         player.gold -= tax;
-        this.addLog(`🏛️ ${player.emoji} ${player.name} nộp ${cfg.name} -$${tax}.`);
+        this.addLog(
+          `🏛️ ${player.emoji} ${player.name} nộp ${cfg.name} -$${tax}${
+            player.characterId === 'creeper' ? ' (Nội tại Creeper -20%)' : ''
+          }.`
+        );
         this.checkBankruptcy(player, null);
         return {
           action: 'PAID_ROYAL_TAX',
@@ -720,7 +930,9 @@ export class GameEngine {
           amount: tax,
           rentReason: cfg.rentReason || `nộp ${cfg.name} theo quy định đô thị`,
           payerPrevGold: prevGold,
-          message: `Vì ${cfg.rentReason || `quy định ${cfg.name}`}, bạn phải nộp -$${tax} vào Kho Bạc Thành Phố!`
+          message: `Vì ${cfg.rentReason || `quy định ${cfg.name}`}, bạn phải nộp -$${tax}${
+            player.characterId === 'creeper' ? ' (Đã giảm 20% nội tại Creeper)' : ''
+          } vào Kho Bạc Thành Phố!`
         };
       }
     }
