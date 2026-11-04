@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AstroCyberr Monopoly — Cờ Tỷ Phú 3D Minecraft Chibi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <!-- 3D WebGL Canvas Container -->
+      <div id="canvas-container" aria-label="Bàn cờ 3D Đảo Nổi AstroCyberr Monopoly"></div>
+
+      <!-- Top Navigation & Status Bar -->
+      <header id="top-hud" class="hud-panel">
+        <div class="brand-badge">
+          <span class="brand-icon">⛏️</span>
+          <div>
+            <h1 class="brand-title">ASTROCYBERR MONOPOLY</h1>
+            <p class="brand-subtitle" id="mode-badge-text">Đảo Nổi 28 Ô • Minecraft Chibi 3D</p>
+          </div>
+        </div>
+
+        <div class="turn-banner" id="turn-banner">
+          <span class="turn-round" id="round-counter">VÒNG 1</span>
+          <span class="turn-player-name" id="active-player-banner">Lượt của: STEVE</span>
+        </div>
+
+        <div class="top-controls">
+          <button id="btn-mode-select" class="hud-btn hud-btn-secondary" title="Đổi chế độ chơi (Bot AI / Pass & Play / Online)">
+            🎮 Chế Độ Chơi
+          </button>
+          <button id="btn-camera-mode" class="hud-btn hud-btn-secondary" title="Chuyển góc nhìn Camera (Toàn cảnh / Bám theo nhân vật)">
+            🎥 Cam: Tự Động
+          </button>
+          <button id="btn-sfx-toggle" class="hud-btn hud-btn-secondary" title="Bật/Tắt Âm thanh 8-Bit WebAudio">
+            🔊 SFX: Bật
+          </button>
+          <button id="btn-bgm-toggle" class="hud-btn hud-btn-secondary" title="Bật/Tắt Nhạc nền Chibi Voxel">
+            🎵 Nhạc: Tắt
+          </button>
+          <button id="btn-blockbench-info" class="hud-btn hud-btn-accent" title="Xem file 3D Blockbench (.bbmodel)">
+            🧊 Blockbench
+          </button>
+        </div>
+      </header>
+
+      <!-- 4 Player Cards Sidebar (Left) -->
+      <aside id="players-sidebar" aria-label="Danh sách 4 người chơi"></aside>
+
+      <!-- Event Feed & Tile Inspector (Right) -->
+      <aside id="right-sidebar">
+        <div id="tile-inspector" class="hud-card">
+          <div class="inspector-header" id="inspector-color-bar">
+            <span id="inspector-icon">🚩</span>
+            <h3 id="inspector-title">Ô Khởi Hành</h3>
+          </div>
+          <div class="inspector-body" id="inspector-body">
+            <p class="inspector-desc">Đi qua hoặc dừng lại nhận ngay <strong>+200 Vàng</strong>!</p>
+          </div>
+        </div>
+
+        <div id="event-log-card" class="hud-card">
+          <div class="card-header-row">
+            <h4>📜 Nhật Ký Ván Đấu</h4>
+            <span id="dice-last-result" class="dice-pill">🎲 --</span>
+          </div>
+          <div id="event-log-list" class="event-log-list"></div>
+        </div>
+      </aside>
+
+      <!-- Floating Action Modal (Mua Đất / Nâng Cấp Nhà / Trả Tiền Thuê / Cổng Dịch Chuyển / Rương Kho Báu) -->
+      <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">
+        <div class="action-card-inner" id="action-card-inner"></div>
+      </div>
+
+      <!-- Bottom Roll Dice Dock -->
+      <footer id="bottom-dock">
+        <div class="locomotion-hint" id="locomotion-hint">
+          ✨ <strong>Steve:</strong> Nhảy lò cò Parabol + Squash & Stretch + Bụi trắng
+        </div>
+        <button id="btn-roll-dice" class="btn-roll-dice">
+          <span class="dice-icon-anim">🎲</span>
+          <span id="btn-roll-text">TUNG XÚC XẮC</span>
+        </button>
+        <button id="btn-end-turn" class="btn-end-turn hidden">
+          ✅ KẾT THÚC LƯỢT
+        </button>
+      </footer>
+
+      <!-- Game Mode & Setup Modal -->
+      <div id="setup-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+        <div class="modal-box">
+          <div class="modal-header">
+            <h2>🎮 Chế Độ Chơi & Thiết Lập Bàn Cờ</h2>
+            <button id="btn-close-setup" class="modal-close-btn">✕</button>
+          </div>
+          <div class="modal-content">
+            <div class="mode-tabs">
+              <button class="mode-tab active" data-mode="SOLO_VS_AI">
+                🤖 1 Người + 3 Bot AI
+                <small>Đấu với 3 AI thông minh biết tính ROI & hoàn tất cụm màu</small>
+              </button>
+              <button class="mode-tab" data-mode="PASS_AND_PLAY">
+                👨‍👩‍👧‍👦 2–4 Người Chung Máy
+                <small>Pass & Play luân phiên cùng bạn bè trên 1 máy tính</small>
+              </button>
+              <button class="mode-tab" data-mode="ONLINE_ROOM">
+                🌐 4 Người Online (Phòng Chơi)
+                <small>Đồng bộ thời gian thực qua Mã Phòng (Multi-Tab / WebRTC)</small>
+              </button>
+            </div>
+
+            <div class="setup-section">
+              <label class="setup-label">Số lượng người chơi (Chế độ Pass & Play):</label>
+              <div class="human-count-row" id="human-count-row">
+                <button class="count-chip" data-humans="1">1 Người + 3 Bot</button>
+                <button class="count-chip active" data-humans="2">2 Người + 2 Bot</button>
+                <button class="count-chip" data-humans="3">3 Người + 1 Bot</button>
+                <button class="count-chip" data-humans="4">4 Người (0 Bot)</button>
+              </div>
+            </div>
+
+            <div class="setup-section" id="online-room-section" style="display: none;">
+              <label class="setup-label">Mã Phòng Online (Mở thêm tab trình duyệt cùng mã phòng để test ngay):</label>
+              <div class="room-input-row">
+                <input id="input-room-code" type="text" value="ASTRO-888" class="room-input" />
+                <button id="btn-join-room" class="hud-btn hud-btn-accent">🔗 Kết Nối Phòng</button>
+              </div>
+              <p class="room-status-note" id="room-status-note">Trạng thái: Sẵn sàng đồng bộ qua BroadcastChannel & WebRTC</p>
+            </div>
+
+            <div class="character-preview-grid">
+              <div class="char-preview-card">
+                <div class="char-avatar steve-bg">🧑🏽</div>
+                <strong>Steve (Chibi 1.2x)</strong>
+                <span>Đi bộ nhảy Parabol + Bụi trắng</span>
+              </div>
+              <div class="char-preview-card">
+                <div class="char-avatar alex-bg">👩🦰</div>
+                <strong>Alex (Chibi 1.2x)</strong>
+                <span>Nhảy lò cò Squash & Stretch</span>
+              </div>
+              <div class="char-preview-card">
+                <div class="char-avatar creeper-bg">🧨</div>
+                <strong>Creeper (Chibi 1.2x)</strong>
+                <span>Phát nổ như TNT & Hồi sinh ô kế!</span>
+              </div>
+              <div class="char-preview-card">
+                <div class="char-avatar enderman-bg">🔮</div>
+                <strong>Enderman (Chibi 1.2x)</strong>
+                <span>Dịch chuyển tức thời + Hạt tím!</span>
+              </div>
+            </div>
+
+            <div class="modal-footer">
+              <button id="btn-start-new-game" class="btn-primary-large">🚀 BẮT ĐẦU VÁN MỚI NGAY</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Blockbench Info Modal -->
+      <div id="blockbench-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+        <div class="modal-box">
+          <div class="modal-header">
+            <h2>🧊 Bộ 5 File Model 3D Chuẩn Blockbench (.bbmodel)</h2>
+            <button id="btn-close-blockbench" class="modal-close-btn">✕</button>
+          </div>
+          <div class="modal-content">
+            <p class="bb-intro">
+              Hệ thống đã tự động tạo sẵn <strong>5 file dự án Blockbench gốc (<code>.bbmodel</code>)</strong> chuẩn tỉ lệ Chibi (Đầu to <code>1.2x</code>, thân nhỏ, tay chân ngắn kèm khớp xương <code>head, body, left_arm, right_arm, left_leg, right_leg</code> và keyframe animation). Bạn có thể mở trực tiếp bằng ứng dụng <strong>Blockbench</strong> đã cài trên máy (<code>C:\Users\NHAT\AppData\Local\Programs\Blockbench\Blockbench.exe</code>):
+            </p>
+            <ul class="bb-file-list">
+              <li><code>blockbench-models/steve_chibi.bbmodel</code> — Model Steve Chibi + Animation <code>hop_walk</code></li>
+              <li><code>blockbench-models/alex_chibi.bbmodel</code> — Model Alex Chibi + Animation <code>hop_walk</code></li>
+              <li><code>blockbench-models/creeper_chibi.bbmodel</code> — Model Creeper Chibi 4 chân + Animation <code>tnt_swell_explode</code></li>
+              <li><code>blockbench-models/enderman_chibi.bbmodel</code> — Model Enderman Chibi mắt tím + Animation <code>ender_teleport</code></li>
+              <li><code>blockbench-models/buildings_voxel.bbmodel</code> — Bộ 4 cấp nhà (Cọc rào → Nhà gỗ → Biệt thự → Lâu đài vương miện) + Cổng The End</li>
+            </ul>
+            <div class="bb-tip-box">
+              💡 <strong>Mẹo:</strong> Sau khi chỉnh sửa trong Blockbench, bạn có thể xuất ra <code>.gltf / .glb</code> vào thư mục <code>public/models/</code> — Engine 3D sẽ tự động ưu tiên nạp model tùy chỉnh của bạn!
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

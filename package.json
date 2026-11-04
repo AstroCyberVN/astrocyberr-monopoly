@@ -1,0 +1,26 @@
+{
+  "name": "astrocyberr-monopoly",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Game 3D Cờ Tỷ Phú Voxel Minecraft Chibi 4 Người Chơi (Three.js + TypeScript + Vite + GSAP + WebAudio 8-Bit Synth + Blockbench Models)",
+  "scripts": {
+    "dev": "vite --port 5173 --host",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 5173",
+    "test": "vitest run",
+    "models:generate": "node scripts/generate_blockbench_models.mjs"
+  },
+  "dependencies": {
+    "canvas-confetti": "^1.9.3",
+    "gsap": "^3.12.5",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/canvas-confetti": "^1.6.4",
+    "@types/three": "^0.170.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}

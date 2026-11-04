@@ -1,0 +1,314 @@
+{
+  "meta": {
+    "format_version": "4.10",
+    "model_format": "free",
+    "box_uv": true,
+    "creation_time": 1793809038,
+    "author": "AstroCyberr Monopoly Generator",
+    "description": "Enderman Chibi — Chibi 1.2x Head Scale Voxel Model (#18181b, #a855f7, #d8b4fe)"
+  },
+  "name": "enderman_chibi",
+  "model_identifier": "enderman_chibi",
+  "visible_box": [
+    1,
+    1.5,
+    0
+  ],
+  "variable_placeholders": "",
+  "resolution": {
+    "width": 64,
+    "height": 64
+  },
+  "elements": [
+    {
+      "name": "head_chibi_1_2x",
+      "box_uv": true,
+      "rescale": false,
+      "locked": false,
+      "from": [
+        -4.8,
+        11,
+        -4.8
+      ],
+      "to": [
+        4.8,
+        20.6,
+        4.8
+      ],
+      "autouv": 1,
+      "color": 1,
+      "origin": [
+        0,
+        11,
+        0
+      ],
+      "uv_offset": [
+        0,
+        0
+      ],
+      "uuid": "enderman-head-cube",
+      "type": "cube"
+    },
+    {
+      "name": "body_chibi",
+      "box_uv": true,
+      "rescale": false,
+      "locked": false,
+      "from": [
+        -3,
+        4.5,
+        -1.8
+      ],
+      "to": [
+        3,
+        11,
+        1.8
+      ],
+      "autouv": 1,
+      "color": 2,
+      "origin": [
+        0,
+        6.5,
+        0
+      ],
+      "uv_offset": [
+        0,
+        20
+      ],
+      "uuid": "enderman-body-cube",
+      "type": "cube"
+    },
+    {
+      "name": "left_leg",
+      "box_uv": true,
+      "rescale": false,
+      "locked": false,
+      "from": [
+        -2.8,
+        0,
+        -1.5
+      ],
+      "to": [
+        -0.2,
+        4.5,
+        1.5
+      ],
+      "autouv": 1,
+      "color": 3,
+      "origin": [
+        -1.5,
+        4,
+        0
+      ],
+      "uv_offset": [
+        24,
+        20
+      ],
+      "uuid": "enderman-legl-cube",
+      "type": "cube"
+    },
+    {
+      "name": "right_leg",
+      "box_uv": true,
+      "rescale": false,
+      "locked": false,
+      "from": [
+        0.2,
+        0,
+        -1.5
+      ],
+      "to": [
+        2.8,
+        4.5,
+        1.5
+      ],
+      "autouv": 1,
+      "color": 3,
+      "origin": [
+        1.5,
+        4,
+        0
+      ],
+      "uv_offset": [
+        36,
+        20
+      ],
+      "uuid": "enderman-legr-cube",
+      "type": "cube"
+    },
+    {
+      "name": "left_arm",
+      "box_uv": true,
+      "rescale": false,
+      "locked": false,
+      "from": [
+        -5.6,
+        4.2,
+        -1.4
+      ],
+      "to": [
+        -3,
+        9,
+        1.4
+      ],
+      "autouv": 1,
+      "color": 4,
+      "origin": [
+        -4.3,
+        8.8,
+        0
+      ],
+      "uv_offset": [
+        0,
+        32
+      ],
+      "uuid": "enderman-arml-cube",
+      "type": "cube"
+    },
+    {
+      "name": "right_arm",
+      "box_uv": true,
+      "rescale": false,
+      "locked": false,
+      "from": [
+        3,
+        4.2,
+        -1.4
+      ],
+      "to": [
+        5.6,
+        9,
+        1.4
+      ],
+      "autouv": 1,
+      "color": 4,
+      "origin": [
+        4.3,
+        8.8,
+        0
+      ],
+      "uv_offset": [
+        16,
+        32
+      ],
+      "uuid": "enderman-armr-cube",
+      "type": "cube"
+    }
+  ],
+  "outliner": [
+    {
+      "name": "root",
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "color": 0,
+      "uuid": "enderman-root-group",
+      "export": true,
+      "mirror_uv": false,
+      "isOpen": true,
+      "locked": false,
+      "visibility": true,
+      "autouv": 0,
+      "children": [
+        {
+          "name": "head_bone",
+          "origin": [
+            0,
+            11,
+            0
+          ],
+          "uuid": "enderman-head-bone",
+          "isOpen": true,
+          "visibility": true,
+          "children": [
+            "enderman-head-cube"
+          ]
+        },
+        {
+          "name": "body_bone",
+          "origin": [
+            0,
+            6.5,
+            0
+          ],
+          "uuid": "enderman-body-bone",
+          "isOpen": true,
+          "visibility": true,
+          "children": [
+            "enderman-body-cube"
+          ]
+        },
+        {
+          "name": "left_limb_bone",
+          "origin": [
+            -4.3,
+            8.8,
+            0
+          ],
+          "uuid": "enderman-arml-bone",
+          "isOpen": true,
+          "visibility": true,
+          "children": [
+            "enderman-arml-cube"
+          ]
+        },
+        {
+          "name": "right_limb_bone",
+          "origin": [
+            4.3,
+            8.8,
+            0
+          ],
+          "uuid": "enderman-armr-bone",
+          "isOpen": true,
+          "visibility": true,
+          "children": [
+            "enderman-armr-cube"
+          ]
+        },
+        {
+          "name": "left_leg_bone",
+          "origin": [
+            -1.5,
+            4,
+            0
+          ],
+          "uuid": "enderman-legl-bone",
+          "isOpen": true,
+          "visibility": true,
+          "children": [
+            "enderman-legl-cube"
+          ]
+        },
+        {
+          "name": "right_leg_bone",
+          "origin": [
+            1.5,
+            4,
+            0
+          ],
+          "uuid": "enderman-legr-bone",
+          "isOpen": true,
+          "visibility": true,
+          "children": [
+            "enderman-legr-cube"
+          ]
+        }
+      ]
+    }
+  ],
+  "textures": [],
+  "animations": [
+    {
+      "uuid": "enderman-anim-move",
+      "name": "enderman_portal_teleport",
+      "loop": "once",
+      "override": false,
+      "length": 0.45,
+      "snapping": 24,
+      "selected": true
+    }
+  ]
+}

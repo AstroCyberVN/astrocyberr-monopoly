@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "format_version": "4.10",
+    "model_format": "free",
+    "box_uv": true,
+    "creation_time": 1793809038,
+    "author": "AstroCyberr Monopoly Generator",
+    "description": "4 Building Tiers (Wooden Fence -> Oak Cottage -> 2-Story Villa -> Crown Castle) + The End Portal"
+  },
+  "name": "buildings_voxel",
+  "model_identifier": "buildings_voxel",
+  "visible_box": [
+    2,
+    2,
+    0
+  ],
+  "resolution": {
+    "width": 64,
+    "height": 64
+  },
+  "elements": [
+    {
+      "name": "tier1_wooden_fence_post",
+      "from": [
+        -6,
+        0,
+        -6
+      ],
+      "to": [
+        -4,
+        6,
+        -4
+      ],
+      "origin": [
+        -5,
+        0,
+        -5
+      ],
+      "uuid": "bldg-tier1-fence",
+      "type": "cube"
+    },
+    {
+      "name": "tier2_oak_cottage_base",
+      "from": [
+        -5,
+        0,
+        -5
+      ],
+      "to": [
+        5,
+        7,
+        5
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "uuid": "bldg-tier2-cottage",
+      "type": "cube"
+    },
+    {
+      "name": "tier3_two_story_villa",
+      "from": [
+        -6,
+        0,
+        -6
+      ],
+      "to": [
+        6,
+        13,
+        6
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "uuid": "bldg-tier3-villa",
+      "type": "cube"
+    },
+    {
+      "name": "tier4_crown_castle_keep",
+      "from": [
+        -7,
+        0,
+        -7
+      ],
+      "to": [
+        7,
+        18,
+        7
+      ],
+      "origin": [
+        0,
+        0,
+        0
+      ],
+      "uuid": "bldg-tier4-castle",
+      "type": "cube"
+    }
+  ],
+  "outliner": [
+    "bldg-tier1-fence",
+    "bldg-tier2-cottage",
+    "bldg-tier3-villa",
+    "bldg-tier4-castle"
+  ],
+  "textures": []
+}
