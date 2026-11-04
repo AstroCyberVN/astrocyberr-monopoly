@@ -1,6 +1,7 @@
 import {
   BOARD_SIZE,
   BOARD_TILES,
+  BUILDING_TIER_NAMES,
   CHARACTER_CONFIGS,
   CHEST_CARDS,
   CharacterId,
@@ -52,10 +53,25 @@ export interface TileResolutionResult {
   amount?: number;
   ownerId?: string;
   ownerName?: string;
+  rentReason?: string;
+  canAffordRent?: boolean;
   payerPrevGold?: number;
   ownerPrevGold?: number;
   chestCard?: ChestCard;
   message: string;
+}
+
+export interface ConfirmedRentPaymentResult {
+  bankrupt: boolean;
+  paidAmount: number;
+  rentRequired: number;
+  payerPrevGold: number;
+  payerNewGold: number;
+  ownerPrevGold: number;
+  ownerNewGold: number;
+  ownerId: string;
+  ownerName: string;
+  rentReason: string;
 }
 
 export interface SerializedGameState {
@@ -77,11 +93,12 @@ export class GameEngine {
   private players: PlayerState[] = [];
   private tiles: TileState[] = [];
   private lastDice: [number, number] | null = null;
-  private winnerId: string | null = null;
+  private winnerId: string | null;
   private logs: string[] = [];
 
   constructor(mode: GameMode = 'SOLO_VS_AI', humanCount = 1, initialGold = 1500) {
     this.mode = mode;
+    this.winnerId = null;
     this.initGame(mode, humanCount, initialGold);
   }
 
@@ -228,7 +245,7 @@ export class GameEngine {
     const passedStart = newPosition === 0;
     if (passedStart) {
       player.gold += 200;
-      this.addLog(`🚩 ${player.emoji} ${player.name} đi qua Ô Khởi Hành và nhận +$200!`);
+      this.addLog(`🚩 ${player.emoji} ${player.name} đi qua Đại Lộ Khởi Hành và nhận +$200!`);
     }
 
     return { oldPosition, newPosition, passedStart };
@@ -278,6 +295,19 @@ export class GameEngine {
 
     rent = Math.round(rent * state.festivalMultiplier);
     return rent;
+  }
+
+  public getFormattedRentReason(tileIndex: number): string {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    const baseReason = cfg.rentReason || `dừng chân tại khu vực [${cfg.name}]`;
+    if (cfg.type === 'PROPERTY' && state.level > 0) {
+      const tier = BUILDING_TIER_NAMES[state.level] || BUILDING_TIER_NAMES[1];
+      return `${baseReason} (Công trình: ${tier.icon} ${tier.name} Cấp ${state.level}${
+        state.festivalMultiplier > 1 ? ` • Lễ Hội x${state.festivalMultiplier}` : ''
+      })`;
+    }
+    return baseReason;
   }
 
   public buyProperty(
@@ -428,7 +458,95 @@ export class GameEngine {
     };
   }
 
-  public resolveTileLanding(playerId: string): TileResolutionResult {
+  /**
+   * Executes the confirmed rent payment (or direct bankruptcy elimination if player.gold < rent)
+   * after the player presses [Space] on the rent notification modal!
+   */
+  public executeConfirmedRentPayment(
+    playerId: string,
+    tileIndex = this.getPlayerById(playerId).position
+  ): ConfirmedRentPaymentResult {
+    const player = this.getPlayerById(playerId);
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    const owner = state.ownerId ? this.getPlayerById(state.ownerId) : player;
+
+    const rentRequired = this.calculateRent(tileIndex);
+    const rentReason = this.getFormattedRentReason(tileIndex);
+    const payerPrevGold = player.gold;
+    const ownerPrevGold = owner.gold;
+
+    if (player.gold >= rentRequired) {
+      player.gold -= rentRequired;
+      owner.gold += rentRequired;
+      this.addLog(
+        `💸 ${player.emoji} ${player.name} đã thanh toán $${rentRequired} tại [${cfg.name}] cho ${owner.emoji} ${owner.name} (Lý do: ${rentReason})!`
+      );
+
+      return {
+        bankrupt: false,
+        paidAmount: rentRequired,
+        rentRequired,
+        payerPrevGold,
+        payerNewGold: player.gold,
+        ownerPrevGold,
+        ownerNewGold: owner.gold,
+        ownerId: owner.id,
+        ownerName: owner.name,
+        rentReason
+      };
+    }
+
+    // Direct Bankruptcy: player does not have enough gold to pay the rent!
+    const paidAmount = Math.max(0, player.gold);
+    owner.gold += paidAmount;
+    player.gold = 0;
+    player.bankrupt = true;
+    player.skipTurns = 0;
+
+    // Release all properties owned by the bankrupt player back to unowned free land
+    for (const t of this.tiles) {
+      if (t.ownerId === player.id) {
+        t.ownerId = null;
+        t.level = 0;
+        t.festivalMultiplier = 1;
+      }
+    }
+
+    this.addLog(
+      `💀 PHÁ SẢN! ${player.emoji} ${player.name} không đủ tiền trả $${rentRequired} tại [${cfg.name}] của ${owner.emoji} ${owner.name} và chính thức bị loại khỏi đường đua!`
+    );
+
+    this.checkVictoryAfterElimination();
+
+    return {
+      bankrupt: true,
+      paidAmount,
+      rentRequired,
+      payerPrevGold,
+      payerNewGold: 0,
+      ownerPrevGold,
+      ownerNewGold: owner.gold,
+      ownerId: owner.id,
+      ownerName: owner.name,
+      rentReason
+    };
+  }
+
+  public checkVictoryAfterElimination(): void {
+    const activePlayers = this.players.filter((p) => !p.bankrupt);
+    if (activePlayers.length === 1) {
+      this.winnerId = activePlayers[0].id;
+      this.addLog(
+        `🏆 CHIẾN THẮNG! ${activePlayers[0].emoji} ${activePlayers[0].name} trở thành Tỷ Phú Độc Tôn trên Đảo Nổi!`
+      );
+    }
+  }
+
+  public resolveTileLanding(
+    playerId: string,
+    options?: { deferRentPayment?: boolean }
+  ): TileResolutionResult {
     const player = this.getPlayerById(playerId);
     const tileIndex = player.position;
     const cfg = this.getTileConfig(tileIndex);
@@ -440,7 +558,7 @@ export class GameEngine {
           action: 'START_LANDED',
           tileIndex,
           tileName: cfg.name,
-          message: `${player.name} dừng ngay tại Ô Khởi Hành! Nhận năng lượng thịnh vượng trên đảo nổi.`
+          message: `${player.name} dừng ngay tại Đại Lộ Khởi Hành! Nhận nguồn năng lượng thịnh vượng.`
         };
 
       case 'PROPERTY':
@@ -489,15 +607,20 @@ export class GameEngine {
 
         const owner = this.getPlayerById(state.ownerId);
         const rent = this.calculateRent(tileIndex);
+        const rentReason = this.getFormattedRentReason(tileIndex);
+        const canAffordRent = player.gold >= rent;
         const payerPrevGold = player.gold;
         const ownerPrevGold = owner.gold;
 
-        player.gold -= rent;
-        owner.gold += rent;
-        this.addLog(
-          `💸 ${player.emoji} ${player.name} trả $${rent} tiền thuê tại [${cfg.name}] cho ${owner.emoji} ${owner.name}!`
-        );
-        this.checkBankruptcy(player, owner.id);
+        if (!options?.deferRentPayment) {
+          player.gold -= rent;
+          owner.gold += rent;
+          this.addLog(
+            `💸 ${player.emoji} ${player.name} trả $${rent} tiền thuê tại [${cfg.name}] cho ${owner.emoji} ${owner.name}!`
+          );
+          this.checkBankruptcy(player, owner.id);
+        }
+
         return {
           action: 'PAID_RENT',
           tileIndex,
@@ -505,27 +628,33 @@ export class GameEngine {
           amount: rent,
           ownerId: owner.id,
           ownerName: owner.name,
+          rentReason,
+          canAffordRent,
           payerPrevGold,
           ownerPrevGold,
-          message: `Đã trả $${rent} tiền thuê đất cho ${owner.name}!`
+          message: canAffordRent
+            ? `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên sẽ phải trả $${rent}!`
+            : `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên phải trả $${rent}, nhưng bạn chỉ còn $${player.gold} — Không đủ khả năng thanh toán (Phá Sản)!`
         };
       }
 
       case 'CHEST': {
         const card = CHEST_CARDS[Math.floor(Math.random() * CHEST_CARDS.length)];
+        const prevGold = player.gold;
         if (card.goldDelta) {
           player.gold += card.goldDelta;
         }
         if (typeof card.moveToTile === 'number') {
           player.position = card.moveToTile;
         }
-        this.addLog(`🧰 ${player.emoji} ${player.name} mở Rương Kho Báu: ${card.title}`);
+        this.addLog(`🧰 ${player.emoji} ${player.name} mở Rương Sự Kiện: ${card.title}`);
         this.checkBankruptcy(player, null);
         return {
           action: 'CHEST_DRAWN',
           tileIndex,
           tileName: cfg.name,
           amount: card.goldDelta,
+          payerPrevGold: prevGold,
           chestCard: card,
           message: `${card.title} — ${card.description}`
         };
@@ -535,13 +664,13 @@ export class GameEngine {
         player.skipTurns = 1;
         this.consecutiveDoubles = 0;
         this.addLog(
-          `🏝️ ${player.emoji} ${player.name} lạc vào Đảo Hoang! Phải nghỉ 1 lượt tiếp theo.`
+          `🏝️ ${player.emoji} ${player.name} bị giữ tại [${cfg.name}]! Phải nghỉ 1 lượt tiếp theo.`
         );
         return {
           action: 'SKIP_TURN_SET',
           tileIndex,
           tileName: cfg.name,
-          message: `${player.name} bị kẹt trên Đảo Hoang và phải nghỉ 1 lượt kế tiếp!`
+          message: `${player.name} bị tạm giữ tại ${cfg.name} và phải mất 1 lượt kế tiếp!`
         };
       }
 
@@ -580,15 +709,18 @@ export class GameEngine {
 
       case 'ROYAL_TAX': {
         const tax = cfg.price ?? 120;
+        const prevGold = player.gold;
         player.gold -= tax;
-        this.addLog(`👑 ${player.emoji} ${player.name} nộp ${cfg.name} -$${tax}.`);
+        this.addLog(`🏛️ ${player.emoji} ${player.name} nộp ${cfg.name} -$${tax}.`);
         this.checkBankruptcy(player, null);
         return {
           action: 'PAID_ROYAL_TAX',
           tileIndex,
           tileName: cfg.name,
           amount: tax,
-          message: `Bạn đã nộp $${tax} vào Ngân Khố Đảo Nổi!`
+          rentReason: cfg.rentReason || `nộp ${cfg.name} theo quy định đô thị`,
+          payerPrevGold: prevGold,
+          message: `Vì ${cfg.rentReason || `quy định ${cfg.name}`}, bạn phải nộp -$${tax} vào Kho Bạc Thành Phố!`
         };
       }
     }
@@ -600,7 +732,6 @@ export class GameEngine {
   private checkBankruptcy(player: PlayerState, creditorId: string | null): void {
     if (player.gold >= 0) return;
 
-    // Attempt to auto-sell owned properties at 75% total value to rescue the player!
     const ownedTiles = this.tiles
       .filter((t) => t.ownerId === player.id)
       .sort((a, b) => this.calculateRent(a.index) - this.calculateRent(b.index));
@@ -628,12 +759,15 @@ export class GameEngine {
 
     player.bankrupt = true;
     player.gold = 0;
-    this.addLog(`💀 ${player.emoji} ${player.name} đã chính thức phá sản!`);
+    player.skipTurns = 0;
+    this.addLog(`💀 ${player.emoji} ${player.name} đã chính thức phá sản và rời khỏi đường đua!`);
 
     for (const t of this.tiles) {
       if (t.ownerId === player.id) {
         if (creditorId) {
-          t.ownerId = creditorId;
+          t.ownerId = null;
+          t.level = 0;
+          t.festivalMultiplier = 1;
         } else {
           t.ownerId = null;
           t.level = 0;
@@ -642,13 +776,7 @@ export class GameEngine {
       }
     }
 
-    const activePlayers = this.players.filter((p) => !p.bankrupt);
-    if (activePlayers.length === 1) {
-      this.winnerId = activePlayers[0].id;
-      this.addLog(
-        `🏆 CHIẾN THẮNG! ${activePlayers[0].emoji} ${activePlayers[0].name} trở thành Tỷ Phú Đảo Nổi Minecraft!`
-      );
-    }
+    this.checkVictoryAfterElimination();
   }
 
   public nextTurn(): { activePlayer: PlayerState; skippedPlayer?: PlayerState; extraTurn?: boolean } {
@@ -674,7 +802,7 @@ export class GameEngine {
         candidate.skipTurns -= 1;
         skippedPlayer = candidate;
         this.addLog(
-          `🏝️ ${candidate.emoji} ${candidate.name} đang nghỉ mát trên Đảo Hoang (Bỏ qua lượt này).`
+          `🏝️ ${candidate.emoji} ${candidate.name} đang bị tạm giữ tại Đảo Cách Ly (Bỏ qua lượt này).`
         );
         continue;
       }

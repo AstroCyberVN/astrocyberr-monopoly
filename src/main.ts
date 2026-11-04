@@ -6,10 +6,14 @@ import {
   BOARD_SIZE,
   BOARD_TILES,
   BUILDING_TIER_NAMES,
-  COLOR_GROUP_LABELS,
   CharacterId
 } from './core/boardData';
-import { GameEngine, GameMode, TileResolutionResult } from './core/gameEngine';
+import {
+  ConfirmedRentPaymentResult,
+  GameEngine,
+  GameMode,
+  TileResolutionResult
+} from './core/gameEngine';
 import { chooseBotAction } from './core/botAI';
 import { soundManager } from './audio/SoundManager';
 import { ParticleSystem3D } from './scene/ParticleSystem3D';
@@ -124,7 +128,6 @@ class AstroCyberrMonopolyApp {
 
   private clock = new THREE.Clock();
   private isBusy = false;
-  private selectedSetupMode: GameMode = 'SOLO_VS_AI';
   private selectedHumanCount = 2;
   private gameSpeedMultiplier = 1;
 
@@ -194,12 +197,19 @@ class AstroCyberrMonopolyApp {
     this.characters3D = new ChibiCharacters3D(this.scene, this.particles);
     this.dice3D = new Dice3D(this.scene);
 
+    this.cameraDirector.onFollowChange(() => {
+      this.updateCameraFollowBanner();
+      this.renderHUD();
+    });
+
     window.addEventListener('resize', () => {
       this.cameraDirector.resize(window.innerWidth, window.innerHeight);
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Click any tile -> Camera flies smoothly to the tile AND the tile elevates + tilts diagonally toward the camera!
+    // Click on 3D Scene:
+    // 1. If clicking a 3D Character Model -> Lock camera to follow that character (with free 360° rotation)!
+    // 2. If clicking a 3D Tile -> Elevate & tilt tile toward camera (along with any character on it!) and fly camera to inspect!
     this.renderer.domElement.addEventListener('click', async (ev) => {
       if (this.cameraDirector.wasDragging()) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
@@ -207,6 +217,29 @@ class AstroCyberrMonopolyApp {
       this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
       this.raycaster.setFromCamera(this.pointer, this.cameraDirector.camera);
 
+      // 1. Check if user clicked on a 3D Chibi Character Model first
+      const charHits = this.raycaster.intersectObjects(
+        this.characters3D.getParentGroup().children,
+        true
+      );
+      for (const hit of charHits) {
+        let obj: THREE.Object3D | null = hit.object;
+        while (obj) {
+          if (obj.userData?.characterId) {
+            const clickedCharId = obj.userData.characterId as CharacterId;
+            const targetPlayer = this.engine
+              .getPlayers()
+              .find((p) => p.characterId === clickedCharId && !p.bankrupt);
+            if (targetPlayer) {
+              this.selectCharacterToFollow(targetPlayer.characterId);
+              return;
+            }
+          }
+          obj = obj.parent;
+        }
+      }
+
+      // 2. Otherwise check if user clicked on a 3D Board Tile
       const hits = this.raycaster.intersectObjects(this.islandBoard.root.children, true);
       let clickedTileIdx: number | null = null;
       for (const hit of hits) {
@@ -247,6 +280,83 @@ class AstroCyberrMonopolyApp {
     });
   }
 
+  private selectCharacterToFollow(charId: CharacterId): void {
+    const players = this.engine.getPlayers();
+    const targetIdx = players.findIndex((p) => p.characterId === charId && !p.bankrupt);
+    if (targetIdx < 0) return;
+
+    const targetPlayer = players[targetIdx];
+    const charPos = this.characters3D.getCharacterWorldPosition(targetPlayer.characterId);
+    const tileCfg = this.engine.getTileConfig(targetPlayer.position);
+
+    document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
+    this.islandBoard.highlightTile(null);
+
+    this.cameraDirector.setFollowedCharacter(targetPlayer.characterId, charPos);
+    if (this.cameraDirector.getCameraStyle() === 'LIVE') {
+      this.cameraDirector.focusActivePlayerLive(
+        charPos,
+        tileCfg.outwardRotationY,
+        this.gameSpeedMultiplier
+      );
+    }
+    this.updateCameraFollowBanner();
+    this.renderHUD();
+  }
+
+  /**
+   * Cycles backward (dir = -1, Key 'A') or forward (dir = +1, Key 'D') through active non-bankrupt characters!
+   */
+  private cycleFollowedCharacter(dir: -1 | 1): void {
+    const activePlayers = this.engine.getPlayers().filter((p) => !p.bankrupt);
+    if (activePlayers.length === 0) return;
+
+    const currentFollowedId =
+      this.cameraDirector.getFollowedCharacterId() || this.engine.getCurrentPlayer().characterId;
+    const curIdx = activePlayers.findIndex((p) => p.characterId === currentFollowedId);
+    const nextIdx =
+      curIdx < 0
+        ? 0
+        : (curIdx + dir + activePlayers.length) % activePlayers.length;
+
+    this.selectCharacterToFollow(activePlayers[nextIdx].characterId);
+  }
+
+  private updateCameraFollowBanner(): void {
+    const banner = document.getElementById('camera-follow-banner')!;
+    const dot = document.getElementById('follow-banner-dot')!;
+    const text = document.getElementById('follow-banner-text')!;
+
+    const style = this.cameraDirector.getCameraStyle();
+    const followedCharId = this.cameraDirector.getFollowedCharacterId();
+
+    if (style === 'LIVE') {
+      const targetCharId = followedCharId || this.engine.getCurrentPlayer().characterId;
+      const targetPlayer =
+        this.engine.getPlayers().find((p) => p.characterId === targetCharId) ||
+        this.engine.getCurrentPlayer();
+      const tileCfg = this.engine.getTileConfig(targetPlayer.position);
+
+      banner.classList.remove('hidden');
+      dot.classList.remove('normal-follow');
+      text.textContent = `🔴 LIVE • Đang theo dõi: ${targetPlayer.name} — Ô #${targetPlayer.position} (${tileCfg.name})`;
+    } else if (followedCharId) {
+      const targetPlayer = this.engine
+        .getPlayers()
+        .find((p) => p.characterId === followedCharId);
+      if (targetPlayer && !targetPlayer.bankrupt) {
+        const tileCfg = this.engine.getTileConfig(targetPlayer.position);
+        banner.classList.remove('hidden');
+        dot.classList.add('normal-follow');
+        text.textContent = `🎯 FOLLOW 360° • ${targetPlayer.name} — Ô #${targetPlayer.position} (${tileCfg.name})`;
+      } else {
+        banner.classList.add('hidden');
+      }
+    } else {
+      banner.classList.add('hidden');
+    }
+  }
+
   private toggleCameraStyleQuick(): void {
     const btnCamNormal = document.getElementById('btn-cam-normal')!;
     const btnCamLive = document.getElementById('btn-cam-live')!;
@@ -260,6 +370,7 @@ class AstroCyberrMonopolyApp {
       btnCamLive.classList.remove('active');
       this.cameraDirector.setCameraStyle('NORMAL');
     }
+    this.updateCameraFollowBanner();
   }
 
   private bindUIEvents(): void {
@@ -272,15 +383,15 @@ class AstroCyberrMonopolyApp {
     const btnSfx = document.getElementById('btn-sfx-toggle')!;
     const btnBgm = document.getElementById('btn-bgm-toggle')!;
     const sliderVolume = document.getElementById('slider-master-volume') as HTMLInputElement;
-    const btnSpeed1x = document.getElementById('btn-speed-1x')!;
-    const btnSpeed2x = document.getElementById('btn-speed-2x')!;
-    const btnModeSelect = document.getElementById('btn-mode-select')!;
-    const btnBlockbench = document.getElementById('btn-blockbench-info')!;
+    const sliderSpeed = document.getElementById('slider-game-speed') as HTMLInputElement;
+    const btnFollowPrev = document.getElementById('btn-follow-prev')!;
+    const btnFollowNext = document.getElementById('btn-follow-next')!;
 
     btnCamNormal.addEventListener('click', () => {
       btnCamNormal.classList.add('active');
       btnCamLive.classList.remove('active');
       this.cameraDirector.setCameraStyle('NORMAL');
+      this.updateCameraFollowBanner();
     });
 
     btnCamLive.addEventListener('click', () => {
@@ -288,6 +399,7 @@ class AstroCyberrMonopolyApp {
       btnCamNormal.classList.remove('active');
       this.cameraDirector.setCameraStyle('LIVE');
       this.focusCurrentPlayerInLiveMode();
+      this.updateCameraFollowBanner();
     });
 
     btnCamReset.addEventListener('click', () => {
@@ -297,9 +409,17 @@ class AstroCyberrMonopolyApp {
         btnCamNormal.classList.add('active');
         btnCamLive.classList.remove('active');
         this.cameraDirector.setCameraStyle('NORMAL');
-      } else {
-        this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
       }
+      this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
+      this.updateCameraFollowBanner();
+      this.renderHUD();
+    });
+
+    btnFollowPrev.addEventListener('click', () => {
+      this.cycleFollowedCharacter(-1);
+    });
+    btnFollowNext.addEventListener('click', () => {
+      this.cycleFollowedCharacter(1);
     });
 
     // Spacebar & Pointer Hold Power Charge Bar for Rolling Dice!
@@ -318,6 +438,12 @@ class AstroCyberrMonopolyApp {
       this.rollChargeRatio = 0.08;
       btnRoll.classList.add('charging');
       this.updatePowerBarUI(this.rollChargeRatio);
+
+      // In LIVE mode, Stage 1 Director Cut: Over-the-Shoulder Dice Action Shot while charging!
+      const activeIdx = this.engine.getCurrentPlayerIndex();
+      const standPos = this.islandBoard.getTileStandPosition(active.position, activeIdx);
+      const tileCfg = this.engine.getTileConfig(active.position);
+      this.cameraDirector.focusDiceRoll(standPos, tileCfg.outwardRotationY);
 
       this.rollChargeTimer = window.setInterval(() => {
         this.rollChargeRatio = Math.min(1.0, this.rollChargeRatio + 0.06);
@@ -351,7 +477,8 @@ class AstroCyberrMonopolyApp {
 
     // Global Keyboard Shortcuts:
     // - F: Quick toggle Camera Normal <-> Live
-    // - Space: Confirm Buy / Upgrade / Skip 3s Delay / Hold to Roll Dice
+    // - A / D: Cycle backward / forward through followed characters
+    // - Space: Confirm Buy / Upgrade / Pay Rent / Bankruptcy / Skip 3s Delay / Hold to Roll Dice
     // - Escape: Pass / Skip Buy / Close Tile Popup
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
@@ -362,9 +489,20 @@ class AstroCyberrMonopolyApp {
         return;
       }
 
+      if ((e.key === 'a' || e.key === 'A') && !e.repeat) {
+        e.preventDefault();
+        this.cycleFollowedCharacter(-1);
+        return;
+      }
+
+      if ((e.key === 'd' || e.key === 'D') && !e.repeat) {
+        e.preventDefault();
+        this.cycleFollowedCharacter(1);
+        return;
+      }
+
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
-        // If a Skip Bar or Action Modal (Buy / Upgrade / Continue) is open, Space triggers it immediately!
         if (this.activeModalPrimaryAction) {
           const fn = this.activeModalPrimaryAction;
           fn();
@@ -381,7 +519,6 @@ class AstroCyberrMonopolyApp {
           fn();
           return;
         }
-        // Otherwise close tile popup and lower elevated tile
         document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
         this.islandBoard.highlightTile(null);
       }
@@ -431,22 +568,20 @@ class AstroCyberrMonopolyApp {
       document.getElementById('volume-pct-label')!.textContent = `${pct}%`;
     });
 
-    btnSpeed1x.addEventListener('click', () => {
-      this.gameSpeedMultiplier = 1;
-      btnSpeed1x.classList.add('active');
-      btnSpeed2x.classList.remove('active');
-    });
-
-    btnSpeed2x.addEventListener('click', () => {
-      this.gameSpeedMultiplier = 2;
-      btnSpeed2x.classList.add('active');
-      btnSpeed1x.classList.remove('active');
+    // Game Speed Slider (1x -> 5x)
+    sliderSpeed.addEventListener('input', () => {
+      const spd = Number(sliderSpeed.value);
+      this.gameSpeedMultiplier = spd;
+      document.getElementById('speed-multiplier-label')!.textContent = `${spd}x`;
     });
 
     document.getElementById('btn-close-tile-popup')!.addEventListener('click', () => {
       document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
       this.islandBoard.highlightTile(null);
-      if (this.cameraDirector.getCameraStyle() === 'NORMAL') {
+      if (
+        this.cameraDirector.getCameraStyle() === 'NORMAL' &&
+        !this.cameraDirector.getFollowedCharacterId()
+      ) {
         this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
       }
     });
@@ -456,55 +591,6 @@ class AstroCyberrMonopolyApp {
     document.getElementById('btn-toggle-log-drawer')!.addEventListener('click', () => {
       const isCollapsed = logDrawer.classList.toggle('collapsed');
       logArrowIcon.textContent = isCollapsed ? '◀' : '▶';
-    });
-
-    const setupModal = document.getElementById('setup-modal')!;
-    btnModeSelect.addEventListener('click', () => {
-      settingsPopover.classList.add('hidden');
-      setupModal.classList.remove('hidden');
-    });
-    document.getElementById('btn-close-setup')!.addEventListener('click', () => {
-      setupModal.classList.add('hidden');
-    });
-
-    document.querySelectorAll<HTMLButtonElement>('.mode-tab').forEach((tab) => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.mode-tab').forEach((t) => t.classList.remove('active'));
-        tab.classList.add('active');
-        this.selectedSetupMode = (tab.dataset.mode as GameMode) || 'SOLO_VS_AI';
-        const onlineSec = document.getElementById('online-room-section')!;
-        onlineSec.style.display = this.selectedSetupMode === 'ONLINE_ROOM' ? 'block' : 'none';
-      });
-    });
-
-    document.querySelectorAll<HTMLButtonElement>('.count-chip').forEach((chip) => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.count-chip').forEach((c) => c.classList.remove('active'));
-        chip.classList.add('active');
-        this.selectedHumanCount = Number(chip.dataset.humans || 2);
-      });
-    });
-
-    document.getElementById('btn-join-room')!.addEventListener('click', () => {
-      const codeInput = document.getElementById('input-room-code') as HTMLInputElement;
-      const roomCode = codeInput.value.trim() || 'ASTRO-888';
-      this.connectOnlineRoom(roomCode);
-      document.getElementById('room-status-note')!.textContent =
-        `✅ Đã kết nối phòng [${roomCode}]!`;
-    });
-
-    document.getElementById('btn-start-new-game')!.addEventListener('click', () => {
-      setupModal.classList.add('hidden');
-      this.startNewGame(this.selectedSetupMode, this.selectedHumanCount);
-    });
-
-    const bbModal = document.getElementById('blockbench-modal')!;
-    btnBlockbench.addEventListener('click', () => {
-      settingsPopover.classList.add('hidden');
-      bbModal.classList.remove('hidden');
-    });
-    document.getElementById('btn-close-blockbench')!.addEventListener('click', () => {
-      bbModal.classList.add('hidden');
     });
   }
 
@@ -521,20 +607,15 @@ class AstroCyberrMonopolyApp {
     const activeIdx = this.engine.getCurrentPlayerIndex();
     const standPos = this.islandBoard.getTileStandPosition(active.position, activeIdx);
     const tileCfg = this.engine.getTileConfig(active.position);
+    if (this.cameraDirector.getCameraStyle() === 'LIVE') {
+      this.cameraDirector.setFollowedCharacter(active.characterId, standPos);
+    }
+    this.updateCameraFollowBanner();
     return this.cameraDirector.focusActivePlayerLive(
       standPos,
       tileCfg.outwardRotationY,
       this.gameSpeedMultiplier
     );
-  }
-
-  private connectOnlineRoom(roomCode: string): void {
-    this.roomSync.connect(roomCode, (remoteState) => {
-      this.engine.hydrate(remoteState);
-      this.syncAllCharactersToBoard();
-      this.syncAllBuildingsToBoard();
-      this.renderHUD();
-    });
   }
 
   private startNewGame(mode: GameMode, humanCount: number): void {
@@ -545,6 +626,7 @@ class AstroCyberrMonopolyApp {
     const humans = mode === 'SOLO_VS_AI' ? 1 : mode === 'ONLINE_ROOM' ? 4 : humanCount;
     this.engine.initGame(mode, humans, 1500);
     this.islandBoard.clearAllBuildings();
+    this.characters3D.resetAllCharactersVisibility();
     this.syncAllCharactersToBoard();
     this.renderHUD();
     this.focusCurrentPlayerInLiveMode();
@@ -556,8 +638,32 @@ class AstroCyberrMonopolyApp {
 
   private syncAllCharactersToBoard(): void {
     this.engine.getPlayers().forEach((p, idx) => {
-      const pos = this.islandBoard.getTileStandPosition(p.position, idx);
-      this.characters3D.placeCharacterAt(p.characterId, pos);
+      if (p.bankrupt) {
+        this.characters3D.eliminateCharacter(p.characterId);
+        return;
+      }
+      const tf = this.islandBoard.getTileStandTransform(p.position, idx);
+      const tileCfg = this.engine.getTileConfig(p.position);
+      this.characters3D.placeCharacterAt(
+        p.characterId,
+        tf.position,
+        tileCfg.outwardRotationY,
+        tf.rotX,
+        tf.rotZ,
+        tf.scale
+      );
+    });
+  }
+
+  /**
+   * Called every frame in the 60fps render loop so any character standing on a tile that is
+   * currently elevating (+0.94Y) and tilting (~27°) toward the camera rises and tilts in lockstep!
+   */
+  private syncIdleCharactersToElevatedTiles(): void {
+    this.engine.getPlayers().forEach((p, idx) => {
+      if (p.bankrupt) return;
+      const tf = this.islandBoard.getTileStandTransform(p.position, idx);
+      this.characters3D.syncCharacterToTileTransform(p.characterId, tf);
     });
   }
 
@@ -614,7 +720,6 @@ class AstroCyberrMonopolyApp {
       };
 
       btnConfirm.addEventListener('click', finish);
-      // Allow pressing Space to immediately trigger Skip!
       this.activeModalPrimaryAction = finish;
 
       const stepMs = Math.round(1000 / Math.max(1, this.gameSpeedMultiplier));
@@ -626,6 +731,48 @@ class AstroCyberrMonopolyApp {
           secSpan.textContent = `${remaining}`;
         }
       }, stepMs);
+    });
+  }
+
+  /**
+   * Animates a single player's HUD card when gaining or losing money (GO +$200, Chest, Tax, Buy/Upgrade)
+   */
+  private animateSinglePlayerCoinDeltaOnHUD(
+    playerId: string,
+    prevGold: number,
+    newGold: number
+  ): void {
+    const delta = newGold - prevGold;
+    if (delta === 0) {
+      this.renderHUD();
+      return;
+    }
+
+    this.renderHUD();
+    const cardEl = document.querySelector<HTMLElement>(`[data-player-card-id="${playerId}"]`);
+    const coinEl = document.querySelector<HTMLElement>(`[data-player-coin-id="${playerId}"]`);
+    if (!coinEl || !cardEl) return;
+
+    const isGain = delta > 0;
+    cardEl.classList.add(isGain ? 'flash-gain' : 'flash-loss');
+    coinEl.classList.add(isGain ? 'counting-up' : 'counting-down');
+
+    const state = { u: 0 };
+    gsap.to(state, {
+      u: 1,
+      duration: 0.65 / Math.max(1, this.gameSpeedMultiplier),
+      ease: 'power1.out',
+      onUpdate: () => {
+        const cur = Math.round(THREE.MathUtils.lerp(prevGold, newGold, state.u));
+        const sign = isGain ? '+' : '-';
+        const cls = isGain ? 'plus' : 'minus';
+        coinEl.innerHTML = `$${cur.toLocaleString('en-US')} <span class="coin-delta-badge ${cls}">${sign}$${Math.abs(delta)}</span>`;
+      },
+      onComplete: () => {
+        coinEl.classList.remove('counting-up', 'counting-down');
+        cardEl.classList.remove('flash-gain', 'flash-loss');
+        this.renderHUD();
+      }
     });
   }
 
@@ -643,6 +790,8 @@ class AstroCyberrMonopolyApp {
     rentAmount: number
   ): Promise<void> {
     return new Promise((resolve) => {
+      const payerCardEl = document.querySelector<HTMLElement>(`[data-player-card-id="${payerId}"]`);
+      const ownerCardEl = document.querySelector<HTMLElement>(`[data-player-card-id="${ownerId}"]`);
       const payerCoinEl = document.querySelector<HTMLElement>(
         `[data-player-coin-id="${payerId}"]`
       );
@@ -657,7 +806,8 @@ class AstroCyberrMonopolyApp {
         return;
       }
 
-      // 1. Set initial pre-rent numbers and attach -$/+$ delta badges
+      payerCardEl?.classList.add('flash-loss');
+      ownerCardEl?.classList.add('flash-gain');
       payerCoinEl.classList.add('counting-down');
       ownerCoinEl.classList.add('counting-up');
 
@@ -669,7 +819,6 @@ class AstroCyberrMonopolyApp {
       const endX = toRect.left + toRect.width * 0.65;
       const endY = toRect.top + toRect.height * 0.5;
 
-      // 2. Spawn 10 2D '$' badges flying along a sideways parabolic arc from payer card to owner card
       const billCount = 10;
       for (let i = 0; i < billCount; i++) {
         const bill = document.createElement('div');
@@ -698,7 +847,6 @@ class AstroCyberrMonopolyApp {
         });
       }
 
-      // 3. Unit-by-unit rolling counter for both Payer (decreasing) and Owner (increasing)
       const counterState = { u: 0 };
       gsap.to(counterState, {
         u: 1,
@@ -717,11 +865,56 @@ class AstroCyberrMonopolyApp {
         onComplete: () => {
           payerCoinEl.classList.remove('counting-down');
           ownerCoinEl.classList.remove('counting-up');
+          payerCardEl?.classList.remove('flash-loss');
+          ownerCardEl?.classList.remove('flash-gain');
           this.renderHUD();
           resolve();
         }
       });
     });
+  }
+
+  /**
+   * Plays the combined 3D Parabolic '$' stream + 2D HUD unit-by-unit counter after rent confirmation!
+   */
+  private async playConfirmedRentTransferEffects(
+    payerId: string,
+    payerSlot: number,
+    payRes: ConfirmedRentPaymentResult
+  ): Promise<void> {
+    soundManager.playPayRent();
+    const payer = this.engine.getPlayerById(payerId);
+    const owner = this.engine.getPlayerById(payRes.ownerId);
+    const ownerSlot = this.engine
+      .getPlayers()
+      .findIndex((p) => p.id === payRes.ownerId);
+
+    const payerPos3D = this.islandBoard.getTileStandPosition(payer.position, payerSlot);
+    const ownerPos3D = this.islandBoard.getTileStandPosition(
+      owner.position,
+      Math.max(0, ownerSlot)
+    );
+
+    if (payRes.paidAmount > 0) {
+      await Promise.all([
+        this.particles.spawnRentCashParabola3D(payerPos3D, ownerPos3D, this.gameSpeedMultiplier),
+        this.animate2DRentTransferOnHUD(
+          payer.id,
+          owner.id,
+          payRes.payerPrevGold,
+          payRes.payerNewGold,
+          payRes.ownerPrevGold,
+          payRes.ownerNewGold,
+          payRes.paidAmount
+        )
+      ]);
+    }
+
+    if (payRes.bankrupt) {
+      this.characters3D.eliminateCharacter(payer.characterId);
+      this.syncAllBuildingsToBoard();
+      this.renderHUD();
+    }
   }
 
   private async executeCurrentPlayerTurn(throwPower = 1.0): Promise<void> {
@@ -733,11 +926,11 @@ class AstroCyberrMonopolyApp {
     const btnRoll = document.getElementById('btn-roll-dice') as HTMLButtonElement;
     btnRoll.disabled = true;
 
-    document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
-    this.islandBoard.highlightTile(null);
+    // 1. LIVE Mode Stage 1: Over-the-Shoulder Dice Action Shot!
+    const startStandPos = this.islandBoard.getTileStandPosition(player.position, playerIdx);
+    const startTileCfg = this.engine.getTileConfig(player.position);
+    this.cameraDirector.focusDiceRoll(startStandPos, startTileCfg.outwardRotationY);
 
-    // 1. Focus dice roll in LIVE mode, roll 3D Dice -> Glow Pips -> Fuse into Total!
-    this.cameraDirector.focusDiceRoll();
     const { d1, d2, total, isDoubles } = this.engine.rollDice();
     await this.dice3D.animateRollAndFuseTotal(d1, d2, throwPower, this.gameSpeedMultiplier);
 
@@ -745,7 +938,7 @@ class AstroCyberrMonopolyApp {
       `🎲 ${d1}+${d2}=${total}${isDoubles ? ' (ĐÔI!)' : ''}`;
     this.renderHUD();
 
-    // 2. Spawn the Authentic 3D Target Beacon + 9 Floating Iron Blocks above the destination tile!
+    // 2. Spawn the Raised Authentic 3D Target Beacon + 9 Iron Blocks above the destination tile!
     const targetTileIdx = (player.position + total) % BOARD_SIZE;
     this.islandBoard.showTargetTileBeacon(targetTileIdx);
 
@@ -753,68 +946,84 @@ class AstroCyberrMonopolyApp {
     if (!player.isBot) {
       await this.waitForHumanDiceSkipConfirmation(d1, d2, total, isDoubles);
     } else {
-      await this.delay(180 / this.gameSpeedMultiplier);
+      await this.delay(160 / this.gameSpeedMultiplier);
       this.dice3D.clearFusionFX();
     }
 
+    // 4. LIVE Mode Stage 2: 3rd-Person Chase Cam with Smooth Corner Banking!
     await this.focusCurrentPlayerInLiveMode();
 
-    // 4. Step-by-step locomotion across `total` tiles on the 40-tile board
     for (let step = 0; step < total; step++) {
-      const fromPos = this.islandBoard.getTileStandPosition(player.position, playerIdx);
+      const fromTf = this.islandBoard.getTileStandTransform(player.position, playerIdx);
+      const prevGold = player.gold;
       const { newPosition, passedStart } = this.engine.stepPlayerOneTile(player.id);
-      const toPos = this.islandBoard.getTileStandPosition(newPosition, playerIdx);
+      const toTf = this.islandBoard.getTileStandTransform(newPosition, playerIdx);
       const toTileCfg = this.engine.getTileConfig(newPosition);
 
-      this.cameraDirector.followCharacterStep(toPos, toTileCfg.outwardRotationY);
-      await this.characters3D.animateStepToTile(player.characterId, fromPos, toPos, step);
+      this.cameraDirector.followCharacterStep(toTf.position, toTileCfg.outwardRotationY);
+      this.updateCameraFollowBanner();
+
+      await this.characters3D.animateStepToTile(
+        player.characterId,
+        fromTf.position,
+        toTf.position,
+        step,
+        this.gameSpeedMultiplier,
+        { rotX: fromTf.rotX, rotZ: fromTf.rotZ, scale: fromTf.scale },
+        { rotX: toTf.rotX, rotZ: toTf.rotZ, scale: toTf.scale }
+      );
 
       if (passedStart) {
         soundManager.playCoinChime();
-        this.renderHUD();
+        this.animateSinglePlayerCoinDeltaOnHUD(player.id, prevGold, player.gold);
       }
     }
 
     this.islandBoard.hideTargetTileBeacon();
 
-    // 5. Resolve tile landing
+    // 5. LIVE Mode Stage 3: Close-Up on Landed Tile / Event!
+    const landedPos = this.islandBoard.getTileStandPosition(player.position, playerIdx);
+    const landedCfg = this.engine.getTileConfig(player.position);
+    await this.cameraDirector.focusTileEventCloseUp(
+      landedPos,
+      landedCfg.outwardRotationY,
+      this.gameSpeedMultiplier
+    );
+
+    // 6. Resolve tile landing (with deferRentPayment: true so rent waits for confirmation!)
     this.showBottomLeftTilePopup(player.position);
-    const resolution = this.engine.resolveTileLanding(player.id);
+    const resolution = this.engine.resolveTileLanding(player.id, { deferRentPayment: true });
     this.syncAllBuildingsToBoard();
 
-    // If Paid Rent -> Trigger 3D Parabolic '$' Stream + 2D HUD Parabolic '$' & Unit-by-Unit Counter!
-    if (resolution.action === 'PAID_RENT' && resolution.ownerId) {
+    if (resolution.action === 'PAID_ROYAL_TAX') {
       soundManager.playPayRent();
-      const owner = this.engine.getPlayerById(resolution.ownerId);
-      const ownerSlot = this.engine
-        .getPlayers()
-        .findIndex((p) => p.id === resolution.ownerId);
-      const payerPos3D = this.islandBoard.getTileStandPosition(player.position, playerIdx);
-      const ownerPos3D = this.islandBoard.getTileStandPosition(
-        owner.position,
-        Math.max(0, ownerSlot)
+      this.animateSinglePlayerCoinDeltaOnHUD(
+        player.id,
+        resolution.payerPrevGold ?? player.gold + (resolution.amount ?? 0),
+        player.gold
       );
-
-      await Promise.all([
-        this.particles.spawnRentCashParabola3D(payerPos3D, ownerPos3D, this.gameSpeedMultiplier),
-        this.animate2DRentTransferOnHUD(
+      if (player.bankrupt) {
+        this.characters3D.eliminateCharacter(player.characterId);
+        this.syncAllBuildingsToBoard();
+      }
+    } else if (resolution.action === 'CHEST_DRAWN') {
+      soundManager.playCoinChime();
+      this.syncAllCharactersToBoard();
+      if (resolution.amount) {
+        this.animateSinglePlayerCoinDeltaOnHUD(
           player.id,
-          owner.id,
-          resolution.payerPrevGold ?? player.gold + (resolution.amount ?? 0),
-          player.gold,
-          resolution.ownerPrevGold ?? owner.gold - (resolution.amount ?? 0),
-          owner.gold,
-          resolution.amount ?? 0
-        )
-      ]);
+          resolution.payerPrevGold ?? player.gold - resolution.amount,
+          player.gold
+        );
+      } else {
+        this.renderHUD();
+      }
+      if (player.bankrupt) {
+        this.characters3D.eliminateCharacter(player.characterId);
+        this.syncAllBuildingsToBoard();
+      }
     } else {
       this.renderHUD();
-      if (resolution.action === 'PAID_ROYAL_TAX') {
-        soundManager.playPayRent();
-      } else if (resolution.action === 'CHEST_DRAWN') {
-        soundManager.playCoinChime();
-        this.syncAllCharactersToBoard();
-      }
     }
 
     const winner = this.engine.getWinner();
@@ -824,20 +1033,58 @@ class AstroCyberrMonopolyApp {
     }
 
     if (player.isBot) {
-      await this.delay(550 / this.gameSpeedMultiplier);
-      await this.handleBotPostLanding(player.id, playerIdx);
-      await this.delay(450 / this.gameSpeedMultiplier);
+      // If Bot landed on an owned property (`PAID_RENT`), show brief rent/bankruptcy notice then execute payment & parabolic '$'
+      if (resolution.action === 'PAID_RENT') {
+        this.showBotRentPreviewBanner(player.name, resolution);
+        await this.delay(650 / this.gameSpeedMultiplier);
+        const payRes = this.engine.executeConfirmedRentPayment(player.id, resolution.tileIndex);
+        this.hideActionModal();
+        await this.playConfirmedRentTransferEffects(player.id, playerIdx, payRes);
+
+        const winAfterRent = this.engine.getWinner();
+        if (winAfterRent) {
+          this.celebrateVictory(winAfterRent.name, winAfterRent.emoji);
+          return;
+        }
+      } else {
+        await this.delay(480 / this.gameSpeedMultiplier);
+        await this.handleBotPostLanding(player.id, playerIdx);
+      }
+
+      await this.delay(380 / this.gameSpeedMultiplier);
       this.advanceToNextTurn();
     } else {
       this.showHumanActionModal(player.id, playerIdx, resolution);
     }
   }
 
+  private showBotRentPreviewBanner(botName: string, res: TileResolutionResult): void {
+    const modal = document.getElementById('floating-action-modal')!;
+    const inner = document.getElementById('action-card-inner')!;
+    const tileCfg = this.engine.getTileConfig(res.tileIndex);
+    modal.classList.remove('hidden');
+
+    inner.innerHTML = `
+      <span class="action-card-badge" style="background:${tileCfg.colorHex};color:#0f172a">
+        ${tileCfg.icon} Ô #${tileCfg.index} • Đất Của ${res.ownerName}
+      </span>
+      <h3 class="action-card-title">${
+        res.canAffordRent ? `💸 ${botName} Trả Tiền Thuê (-$${res.amount})` : `💀 ${botName} Phá Sản!`
+      }</h3>
+      <p class="action-card-desc">
+        <strong>${botName}</strong> đã đi vào đất <strong>${tileCfg.name}</strong> của <strong>${res.ownerName}</strong>.<br/>
+        Vì <em>${res.rentReason}</em> nên phải trả <strong>$${res.amount}</strong>!
+      </p>
+    `;
+  }
+
   private async handleBotPostLanding(botId: string, botSlot: number): Promise<void> {
     const bot = this.engine.getPlayerById(botId);
+    if (bot.bankrupt) return;
     const decision = chooseBotAction(this.engine, botId);
 
     if (decision.type === 'BUY_PROPERTY') {
+      const prevGold = bot.gold;
       const res = this.engine.buyProperty(botId, decision.tileIndex);
       if (res.ok) {
         const state = this.engine.getTileState(decision.tileIndex);
@@ -847,8 +1094,10 @@ class AstroCyberrMonopolyApp {
           bot.color,
           state.festivalMultiplier
         );
+        this.animateSinglePlayerCoinDeltaOnHUD(botId, prevGold, bot.gold);
       }
     } else if (decision.type === 'UPGRADE_PROPERTY') {
+      const prevGold = bot.gold;
       const res = this.engine.upgradeProperty(botId, decision.tileIndex);
       if (res.ok) {
         const state = this.engine.getTileState(decision.tileIndex);
@@ -858,6 +1107,7 @@ class AstroCyberrMonopolyApp {
           bot.color,
           state.festivalMultiplier
         );
+        this.animateSinglePlayerCoinDeltaOnHUD(botId, prevGold, bot.gold);
       }
     } else if (decision.type === 'FESTIVAL_BOOST') {
       this.engine.applyFestivalBoost(botId, decision.tileIndex);
@@ -870,23 +1120,46 @@ class AstroCyberrMonopolyApp {
       );
     } else if (decision.type === 'NETHER_WARP') {
       soundManager.playPortalWarp();
+      const prevGold = bot.gold;
       const fromPos = this.islandBoard.getTileStandPosition(bot.position, botSlot);
       this.particles.spawnEndermanPortalParticles(fromPos);
       this.engine.warpThroughNetherPortal(botId);
-      const toPos = this.islandBoard.getTileStandPosition(bot.position, botSlot);
-      this.characters3D.placeCharacterAt(bot.characterId, toPos);
-      this.particles.spawnEndermanPortalParticles(toPos);
+      const toTf = this.islandBoard.getTileStandTransform(bot.position, botSlot);
+      const tileCfg = this.engine.getTileConfig(bot.position);
+      this.characters3D.placeCharacterAt(
+        bot.characterId,
+        toTf.position,
+        tileCfg.outwardRotationY,
+        toTf.rotX,
+        toTf.rotZ,
+        toTf.scale
+      );
+      this.particles.spawnEndermanPortalParticles(toTf.position);
+      this.animateSinglePlayerCoinDeltaOnHUD(botId, prevGold, bot.gold);
     } else if (decision.type === 'TELEPORT_TARGET') {
       soundManager.playPortalWarp();
+      const prevGold = bot.gold;
       const fromPos = this.islandBoard.getTileStandPosition(bot.position, botSlot);
       this.particles.spawnEndermanPortalParticles(fromPos);
       this.engine.teleportFromEndPortal(botId, decision.tileIndex);
-      const toPos = this.islandBoard.getTileStandPosition(bot.position, botSlot);
-      this.characters3D.placeCharacterAt(bot.characterId, toPos);
-      this.particles.spawnEndermanPortalParticles(toPos);
+      const toTf = this.islandBoard.getTileStandTransform(bot.position, botSlot);
+      const tileCfg = this.engine.getTileConfig(bot.position);
+      this.characters3D.placeCharacterAt(
+        bot.characterId,
+        toTf.position,
+        tileCfg.outwardRotationY,
+        toTf.rotX,
+        toTf.rotZ,
+        toTf.scale
+      );
+      this.particles.spawnEndermanPortalParticles(toTf.position);
+      if (bot.gold !== prevGold) {
+        this.animateSinglePlayerCoinDeltaOnHUD(botId, prevGold, bot.gold);
+      }
 
       const secondDecision = chooseBotAction(this.engine, botId);
       if (secondDecision.type === 'BUY_PROPERTY') {
+        const beforeBuy = bot.gold;
         const buyRes = this.engine.buyProperty(botId, secondDecision.tileIndex);
         if (buyRes.ok) {
           const st = this.engine.getTileState(secondDecision.tileIndex);
@@ -896,6 +1169,7 @@ class AstroCyberrMonopolyApp {
             bot.color,
             st.festivalMultiplier
           );
+          this.animateSinglePlayerCoinDeltaOnHUD(botId, beforeBuy, bot.gold);
         }
       }
     }
@@ -915,6 +1189,96 @@ class AstroCyberrMonopolyApp {
     const tileState = this.engine.getTileState(res.tileIndex);
 
     modal.classList.remove('hidden');
+
+    // 1. Landed on an Owned Property (`PAID_RENT`): Show Reason + Amount + Confirm Payment [Space] OR Direct Bankruptcy [Space]!
+    if (res.action === 'PAID_RENT') {
+      const rentAmount = res.amount ?? 0;
+      const canAfford = res.canAffordRent ?? player.gold >= rentAmount;
+      const afterGold = Math.max(0, player.gold - rentAmount);
+
+      if (canAfford) {
+        inner.innerHTML = `
+          <span class="action-card-badge" style="background:${tileCfg.colorHex};color:#0f172a">
+            ${tileCfg.icon} Ô #${tileCfg.index} • Đất Của ${res.ownerName}
+          </span>
+          <h3 class="action-card-title">💸 Thông Báo Thu Phí Lãnh Địa</h3>
+          <p class="action-card-desc">
+            Bạn đã đi vào đất <strong>${tileCfg.name}</strong> của <strong>${res.ownerName}</strong>.<br/>
+            Vì <strong>${res.rentReason}</strong> nên bạn sẽ phải trả <strong>$${rentAmount}</strong>!
+          </p>
+          <div class="rent-invoice-box">
+            <div class="rent-invoice-row">
+              <span>Chủ sở hữu</span>
+              <strong>${res.ownerName}</strong>
+            </div>
+            <div class="rent-invoice-row">
+              <span>Số tiền thanh toán</span>
+              <span class="danger-val">-$${rentAmount}</span>
+            </div>
+            <div class="rent-invoice-row">
+              <span>Số dư sau thanh toán</span>
+              <span class="emerald-val">$${afterGold.toLocaleString('en-US')}</span>
+            </div>
+          </div>
+          <div class="action-btn-group">
+            <button id="act-btn-confirm-rent" class="action-btn action-btn-buy">
+              <span>💸 Xác Nhận Thanh Toán (-$${rentAmount})</span>
+              <kbd class="key-hint">Space</kbd>
+            </button>
+          </div>
+        `;
+      } else {
+        inner.innerHTML = `
+          <span class="action-card-badge" style="background:#ef4444;color:#ffffff">
+            💀 PHÁ SẢN • KHÔNG ĐỦ KHẢ NĂNG THANH TOÁN
+          </span>
+          <h3 class="action-card-title">Loại Khỏi Đường Đua!</h3>
+          <p class="action-card-desc">
+            Bạn đã đi vào đất <strong>${tileCfg.name}</strong> của <strong>${res.ownerName}</strong>.<br/>
+            Vì <strong>${res.rentReason}</strong> nên phải trả <strong>$${rentAmount}</strong>, nhưng bạn chỉ còn <strong>$${player.gold}</strong>!
+          </p>
+          <div class="rent-invoice-box">
+            <div class="rent-invoice-row">
+              <span>Khoản nợ phải trả</span>
+              <span class="danger-val">$${rentAmount}</span>
+            </div>
+            <div class="rent-invoice-row">
+              <span>Tài sản hiện có</span>
+              <strong>$${player.gold}</strong>
+            </div>
+            <div class="rent-invoice-row">
+              <span>Trạng thái</span>
+              <span class="danger-val">💀 PHÁ SẢN & LOẠI KHỎI ĐƯỜNG ĐUA</span>
+            </div>
+          </div>
+          <div class="action-btn-group">
+            <button id="act-btn-confirm-rent" class="action-btn action-btn-bankrupt">
+              <span>💀 Tuyên Bố Phá Sản & Rời Cuộc Đua</span>
+              <kbd class="key-hint">Space</kbd>
+            </button>
+          </div>
+        `;
+      }
+
+      const doConfirmRent = async () => {
+        this.hideActionModal();
+        const payRes = this.engine.executeConfirmedRentPayment(playerId, res.tileIndex);
+        await this.playConfirmedRentTransferEffects(playerId, playerSlot, payRes);
+        this.showBottomLeftTilePopup(res.tileIndex);
+
+        const winner = this.engine.getWinner();
+        if (winner) {
+          this.celebrateVictory(winner.name, winner.emoji);
+          return;
+        }
+        this.advanceToNextTurn();
+      };
+
+      this.activeModalPrimaryAction = doConfirmRent;
+      this.activeModalSecondaryAction = null;
+      document.getElementById('act-btn-confirm-rent')!.addEventListener('click', doConfirmRent);
+      return;
+    }
 
     if (res.action === 'CAN_BUY_PROPERTY') {
       inner.innerHTML = `
@@ -936,6 +1300,7 @@ class AstroCyberrMonopolyApp {
       `;
 
       const doBuy = () => {
+        const prevGold = player.gold;
         const buy = this.engine.buyProperty(playerId, res.tileIndex);
         if (buy.ok) {
           const st = this.engine.getTileState(res.tileIndex);
@@ -946,7 +1311,7 @@ class AstroCyberrMonopolyApp {
             st.festivalMultiplier
           );
           this.showBottomLeftTilePopup(res.tileIndex);
-          this.renderHUD();
+          this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
         }
         this.hideActionModal();
         this.advanceToNextTurn();
@@ -988,6 +1353,7 @@ class AstroCyberrMonopolyApp {
       `;
 
       const doUpgrade = () => {
+        const prevGold = player.gold;
         const up = this.engine.upgradeProperty(playerId, res.tileIndex);
         if (up.ok) {
           const st = this.engine.getTileState(res.tileIndex);
@@ -998,7 +1364,7 @@ class AstroCyberrMonopolyApp {
             st.festivalMultiplier
           );
           this.showBottomLeftTilePopup(res.tileIndex);
-          this.renderHUD();
+          this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
         }
         this.hideActionModal();
         this.advanceToNextTurn();
@@ -1036,22 +1402,33 @@ class AstroCyberrMonopolyApp {
 
       const doNetherWarp = () => {
         soundManager.playPortalWarp();
+        const prevGold = player.gold;
         const fromPos = this.islandBoard.getTileStandPosition(player.position, playerSlot);
         this.particles.spawnEndermanPortalParticles(fromPos);
 
         const warpRes = this.engine.warpThroughNetherPortal(playerId);
-        const toPos = this.islandBoard.getTileStandPosition(player.position, playerSlot);
-        this.characters3D.placeCharacterAt(player.characterId, toPos);
-        this.particles.spawnEndermanPortalParticles(toPos);
+        const toTf = this.islandBoard.getTileStandTransform(player.position, playerSlot);
+        const destCfg = this.engine.getTileConfig(player.position);
+        this.characters3D.placeCharacterAt(
+          player.characterId,
+          toTf.position,
+          destCfg.outwardRotationY,
+          toTf.rotX,
+          toTf.rotZ,
+          toTf.scale
+        );
+        this.particles.spawnEndermanPortalParticles(toTf.position);
+        this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
 
         this.showBottomLeftTilePopup(warpRes.targetTileIndex);
-        const postWarpRes = this.engine.resolveTileLanding(playerId);
+        const postWarpRes = this.engine.resolveTileLanding(playerId, { deferRentPayment: true });
         this.syncAllBuildingsToBoard();
         this.renderHUD();
 
         if (
           postWarpRes.action === 'CAN_BUY_PROPERTY' ||
-          postWarpRes.action === 'CAN_UPGRADE_PROPERTY'
+          postWarpRes.action === 'CAN_UPGRADE_PROPERTY' ||
+          postWarpRes.action === 'PAID_RENT'
         ) {
           this.showHumanActionModal(playerId, playerSlot, postWarpRes);
         } else {
@@ -1084,7 +1461,7 @@ class AstroCyberrMonopolyApp {
       inner.innerHTML = `
         <span class="action-card-badge" style="background:#9333ea;color:#ffffff">🌌 Cổng Dịch Chuyển The End (12 Khung)</span>
         <h3 class="action-card-title">Chọn Ô Bất Kỳ Để Bay Tới!</h3>
-        <p class="action-card-desc">Nếu bay qua Ô Khởi Hành (#0) bạn vẫn được nhận <strong>+$200</strong>!</p>
+        <p class="action-card-desc">Nếu bay qua Đại Lộ Khởi Hành (#0) bạn vẫn được nhận <strong>+$200</strong>!</p>
         <div class="portal-grid">${tileButtonsHtml}</div>
       `;
 
@@ -1092,22 +1469,37 @@ class AstroCyberrMonopolyApp {
         btn.addEventListener('click', () => {
           const targetIdx = Number(btn.dataset.target || 0);
           soundManager.playPortalWarp();
+          const prevGold = player.gold;
           const fromPos = this.islandBoard.getTileStandPosition(player.position, playerSlot);
           this.particles.spawnEndermanPortalParticles(fromPos);
 
           this.engine.teleportFromEndPortal(playerId, targetIdx);
-          const toPos = this.islandBoard.getTileStandPosition(player.position, playerSlot);
-          this.characters3D.placeCharacterAt(player.characterId, toPos);
-          this.particles.spawnEndermanPortalParticles(toPos);
+          const toTf = this.islandBoard.getTileStandTransform(player.position, playerSlot);
+          const destCfg = this.engine.getTileConfig(player.position);
+          this.characters3D.placeCharacterAt(
+            player.characterId,
+            toTf.position,
+            destCfg.outwardRotationY,
+            toTf.rotX,
+            toTf.rotZ,
+            toTf.scale
+          );
+          this.particles.spawnEndermanPortalParticles(toTf.position);
+          if (player.gold !== prevGold) {
+            this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
+          }
 
           this.showBottomLeftTilePopup(targetIdx);
-          const postPortalRes = this.engine.resolveTileLanding(playerId);
+          const postPortalRes = this.engine.resolveTileLanding(playerId, {
+            deferRentPayment: true
+          });
           this.syncAllBuildingsToBoard();
           this.renderHUD();
 
           if (
             postPortalRes.action === 'CAN_BUY_PROPERTY' ||
-            postPortalRes.action === 'CAN_UPGRADE_PROPERTY'
+            postPortalRes.action === 'CAN_UPGRADE_PROPERTY' ||
+            postPortalRes.action === 'PAID_RENT'
           ) {
             this.showHumanActionModal(playerId, playerSlot, postPortalRes);
           } else {
@@ -1122,9 +1514,10 @@ class AstroCyberrMonopolyApp {
     if (res.action === 'CHOOSE_FESTIVAL_TILE') {
       const owned = this.engine.getAllTileStates().filter((t) => t.ownerId === playerId);
       if (owned.length === 0) {
+        const prevGold = player.gold;
         player.gold += 80;
         soundManager.playCoinChime();
-        this.renderHUD();
+        this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
       } else {
         const ownedButtons = owned
           .map((st) => {
@@ -1134,7 +1527,7 @@ class AstroCyberrMonopolyApp {
           .join('');
 
         inner.innerHTML = `
-          <span class="action-card-badge" style="background:#ec4899;color:#ffffff">🎉 Đại Tiệc Lễ Hội Làng</span>
+          <span class="action-card-badge" style="background:#ec4899;color:#ffffff">🎉 Đại Tiệc Lễ Hội Thành Phố</span>
           <h3 class="action-card-title">Nhân Đôi (x2) Tiền Thuê Đất!</h3>
           <p class="action-card-desc">Chọn 1 ô đất thuộc sở hữu của bạn để nhân đôi tiền thuê:</p>
           <div class="portal-grid">${ownedButtons}</div>
@@ -1160,13 +1553,11 @@ class AstroCyberrMonopolyApp {
         ${tileCfg.icon} Ô #${tileCfg.index} • ${tileCfg.name}
       </span>
       <h3 class="action-card-title">${
-        res.action === 'PAID_RENT'
-          ? `💸 Trả Tiền Thuê (-$${res.amount})`
-          : res.action === 'CHEST_DRAWN'
-            ? '🧰 Mở Rương Kho Báu Minecraft!'
-            : res.action === 'SKIP_TURN_SET'
-              ? '🏝️ Mắc Kẹt Trên Đảo Hoang!'
-              : tileCfg.name
+        res.action === 'CHEST_DRAWN'
+          ? '🧰 Mở Rương Sự Kiện Đô Thị!'
+          : res.action === 'SKIP_TURN_SET'
+            ? '🏝️ Tạm Giữ Tại Đảo Cách Ly (Mất 1 Lượt)!'
+            : tileCfg.name
       }</h3>
       <p class="action-card-desc">${res.message}</p>
       <div class="action-btn-group">
@@ -1219,7 +1610,7 @@ class AstroCyberrMonopolyApp {
       btnRoll.disabled = true;
       window.setTimeout(() => {
         this.executeCurrentPlayerTurn(1.1);
-      }, Math.round(650 / this.gameSpeedMultiplier));
+      }, Math.round(620 / this.gameSpeedMultiplier));
     }
   }
 
@@ -1235,7 +1626,7 @@ class AstroCyberrMonopolyApp {
     const inner = document.getElementById('action-card-inner')!;
     modal.classList.remove('hidden');
     inner.innerHTML = `
-      <span class="action-card-badge" style="background:#10b981;color:#0f172a">🏆 NHÀ VÔ ĐỊCH ĐẢO NỔI 40 Ô</span>
+      <span class="action-card-badge" style="background:#10b981;color:#0f172a">🏆 NHÀ VÔ ĐỊCH ĐÔ THỊ 40 Ô</span>
       <h3 class="action-card-title">${emoji} ${winnerName} Chiến Thắng!</h3>
       <p class="action-card-desc">Chúc mừng Tỷ Phú Voxel mới của vương quốc AstroCyberr Monopoly!</p>
       <div class="action-btn-group">
@@ -1253,6 +1644,10 @@ class AstroCyberrMonopolyApp {
     document.getElementById('act-btn-restart')!.addEventListener('click', doRestart);
   }
 
+  /**
+   * Renders ONLY the explicitly configured properties from `src/config/tilesConfig.ts`
+   * without generating unrelated filler text!
+   */
   private showBottomLeftTilePopup(tileIndex: number): void {
     const popup = document.getElementById('tile-popup-bottom-left')!;
     const header = document.getElementById('tile-popup-header')!;
@@ -1263,81 +1658,74 @@ class AstroCyberrMonopolyApp {
     const cfg = this.engine.getTileConfig(tileIndex % BOARD_SIZE);
     const st = this.engine.getTileState(tileIndex % BOARD_SIZE);
     const owner = st.ownerId ? this.engine.getPlayerById(st.ownerId) : null;
-    const tier = BUILDING_TIER_NAMES[st.level] || BUILDING_TIER_NAMES[0];
 
     header.style.background = cfg.colorHex;
     iconEl.textContent = cfg.icon;
     titleEl.textContent = `#${cfg.index} ${cfg.name}`;
 
-    if (cfg.type === 'PROPERTY' || cfg.type === 'RAILROAD' || cfg.type === 'UTILITY') {
-      const currentRent = st.ownerId ? this.engine.calculateRent(cfg.index) : (cfg.rents?.[0] ?? 0);
-      const groupName = cfg.colorGroup
-        ? COLOR_GROUP_LABELS[cfg.colorGroup]
-        : cfg.type === 'RAILROAD'
-          ? 'Tuyến Đường Sắt Minecart'
-          : 'Công Trình Năng Lượng';
+    const rows: string[] = [];
 
-      bodyEl.innerHTML = `
+    if (typeof cfg.price === 'number') {
+      const label = cfg.type === 'ROYAL_TAX' ? 'Mức thuế' : 'Giá mua';
+      const val =
+        cfg.type === 'ROYAL_TAX'
+          ? `<span class="popup-v-val" style="color:#f87171">-$${cfg.price}</span>`
+          : `<span class="popup-v-val emerald">$${cfg.price}</span>`;
+      rows.push(`<div class="popup-v-row"><span class="popup-v-label">${label}</span>${val}</div>`);
+    }
+
+    if (typeof cfg.upgradeCost === 'number') {
+      rows.push(`
         <div class="popup-v-row">
-          <span class="popup-v-label">Cụm / Loại</span>
-          <span class="popup-v-val">${groupName}</span>
+          <span class="popup-v-label">Phí nâng cấp</span>
+          <span class="popup-v-val emerald">$${cfg.upgradeCost}</span>
         </div>
-        <div class="popup-v-row">
-          <span class="popup-v-label">Giá mua đất</span>
-          <span class="popup-v-val emerald">$${cfg.price}</span>
-        </div>
-        ${
-          cfg.upgradeCost
-            ? `<div class="popup-v-row">
-                <span class="popup-v-label">Phí nâng cấp nhà</span>
-                <span class="popup-v-val emerald">$${cfg.upgradeCost}</span>
-               </div>`
-            : ''
-        }
+      `);
+    }
+
+    if (cfg.rents && cfg.rents.length > 0) {
+      const currentRent = st.ownerId ? this.engine.calculateRent(cfg.index) : cfg.rents[0];
+      rows.push(`
         <div class="popup-v-row">
           <span class="popup-v-label">Tiền thuê hiện tại</span>
-          <span class="popup-v-val emerald">$${currentRent}${st.festivalMultiplier > 1 ? ` (x${st.festivalMultiplier})` : ''}</span>
+          <span class="popup-v-val emerald">$${currentRent}${
+            st.festivalMultiplier > 1 ? ` (x${st.festivalMultiplier})` : ''
+          }</span>
         </div>
-        ${
-          cfg.rents
-            ? `<div class="popup-v-row">
-                <span class="popup-v-label">Thuê Cấp 1 → 4</span>
-                <span class="popup-v-val">$${cfg.rents.join(' / $')}</span>
-               </div>`
-            : ''
-        }
         <div class="popup-v-row">
-          <span class="popup-v-label">Công trình</span>
-          <span class="popup-v-val">${tier.icon} ${tier.name}</span>
+          <span class="popup-v-label">Bảng giá thuê</span>
+          <span class="popup-v-val">$${cfg.rents.join(' / $')}</span>
         </div>
+      `);
+    }
+
+    if (cfg.type === 'PROPERTY' || cfg.type === 'RAILROAD' || cfg.type === 'UTILITY') {
+      rows.push(`
         <div class="popup-v-row">
           <span class="popup-v-label">Chủ sở hữu</span>
           <span class="popup-v-val">${owner ? `${owner.emoji} ${owner.name}` : 'Chưa có chủ'}</span>
         </div>
-        <div class="popup-v-desc">${cfg.description}</div>
-      `;
-    } else {
-      bodyEl.innerHTML = `
-        <div class="popup-v-row">
-          <span class="popup-v-label">Loại ô đặc biệt</span>
-          <span class="popup-v-val">${cfg.type}</span>
-        </div>
-        ${
-          cfg.type === 'START'
-            ? `<div class="popup-v-row"><span class="popup-v-label">Thưởng đi qua</span><span class="popup-v-val emerald">+$200</span></div>`
-            : cfg.type === 'ROYAL_TAX'
-              ? `<div class="popup-v-row"><span class="popup-v-label">Mức thuế</span><span class="popup-v-val" style="color:#f87171">-$${cfg.price ?? 120}</span></div>`
-              : ''
-        }
-        <div class="popup-v-desc">${cfg.description}</div>
-      `;
+      `);
     }
 
+    if (cfg.rentReason) {
+      rows.push(`
+        <div class="popup-v-row">
+          <span class="popup-v-label">Lý do thu phí</span>
+          <span class="popup-v-val" style="text-align:right;max-width:155px">${cfg.rentReason}</span>
+        </div>
+      `);
+    }
+
+    rows.push(`<div class="popup-v-desc">${cfg.description}</div>`);
+
+    bodyEl.innerHTML = rows.join('');
     popup.classList.remove('hidden');
   }
 
   private renderHUD(): void {
     const active = this.engine.getCurrentPlayer();
+    const followedCharId = this.cameraDirector?.getFollowedCharacterId() ?? null;
 
     document.getElementById('round-counter')!.textContent = `VÒNG ${this.engine.getRound()}`;
     document.getElementById('active-player-banner')!.textContent =
@@ -1353,9 +1741,30 @@ class AstroCyberrMonopolyApp {
     sidebar.innerHTML = this.engine
       .getPlayers()
       .map((p) => {
-        const isCurrent = p.id === active.id;
+        const isCurrent = p.id === active.id && !p.bankrupt;
+        const isFollowed = followedCharId === p.characterId && !p.bankrupt;
+
+        const statusPills: string[] = [];
+        if (p.bankrupt) {
+          statusPills.push(`<span class="status-pill status-pill-bankrupt">💀 PHÁ SẢN • LOẠI</span>`);
+        } else {
+          if (p.skipTurns > 0) {
+            statusPills.push(
+              `<span class="status-pill status-pill-skip">🏝️ Mất ${p.skipTurns} lượt</span>`
+            );
+          }
+          if (isFollowed) {
+            statusPills.push(`<span class="status-pill status-pill-followed">🎯 ĐANG FOLLOW</span>`);
+          }
+        }
+
         return `
-          <div class="player-rect-card ${isCurrent ? 'active-turn' : ''} ${p.bankrupt ? 'bankrupt' : ''}" data-player-card-id="${p.id}">
+          <div
+            class="player-rect-card ${isCurrent ? 'active-turn' : ''} ${p.bankrupt ? 'bankrupt' : ''} ${isFollowed ? 'followed-target' : ''}"
+            data-player-card-id="${p.id}"
+            data-player-char-id="${p.characterId}"
+            title="Click để Camera theo dõi ${p.name} (Hoặc bấm phím A / D)"
+          >
             ${isCurrent ? '<span class="active-turn-pill">▶ ĐANG ĐI</span>' : ''}
             <canvas
               class="player-grass-avatar-canvas"
@@ -1366,6 +1775,11 @@ class AstroCyberrMonopolyApp {
             <div class="player-rect-info">
               <div class="player-rect-name">${p.name}</div>
               <div class="player-rect-coin" data-player-coin-id="${p.id}">$${p.gold.toLocaleString('en-US')}</div>
+              ${
+                statusPills.length > 0
+                  ? `<div class="player-status-row">${statusPills.join('')}</div>`
+                  : ''
+              }
             </div>
           </div>
         `;
@@ -1378,6 +1792,16 @@ class AstroCyberrMonopolyApp {
         const charId = canvas.dataset.charAvatar as CharacterId;
         drawCharacterOnGrassBlockAvatar(canvas, charId);
       });
+
+    // Clicking any player card in the left sidebar follows that character!
+    sidebar.querySelectorAll<HTMLElement>('.player-rect-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const charId = card.dataset.playerCharId as CharacterId;
+        if (charId) {
+          this.selectCharacterToFollow(charId);
+        }
+      });
+    });
 
     const logContainer = document.getElementById('event-log-list')!;
     logContainer.innerHTML = this.engine
@@ -1398,9 +1822,16 @@ class AstroCyberrMonopolyApp {
       const elapsed = this.clock.getElapsedTime();
 
       this.islandBoard.update(elapsed);
+      // Synchronize all standing characters with any elevated/tilted tile in real-time!
+      this.syncIdleCharactersToElevatedTiles();
       this.characters3D.updateIdle(elapsed);
       this.particles.update(dt);
-      this.cameraDirector.update(dt);
+
+      const followedCharId = this.cameraDirector.getFollowedCharacterId();
+      const followedPos = followedCharId
+        ? this.characters3D.getCharacterWorldPosition(followedCharId)
+        : undefined;
+      this.cameraDirector.update(dt, followedPos);
 
       this.renderer.render(this.scene, this.cameraDirector.camera);
     };

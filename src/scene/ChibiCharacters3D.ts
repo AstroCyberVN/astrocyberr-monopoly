@@ -16,6 +16,8 @@ export interface ChibiRig {
   rightLegPivot: THREE.Group;
   flashMaterials: THREE.MeshStandardMaterial[];
   basePhase: number;
+  isStepping: boolean;
+  eliminated: boolean;
 }
 
 /**
@@ -280,6 +282,13 @@ export class ChibiCharacters3D {
     ringMesh.position.y = 0.02;
     root.add(ringMesh);
 
+    // Intrinsic XZY order ensures local Y yaw is applied first, then world X/Z tile tilt on top!
+    root.rotation.order = 'XZY';
+    root.userData = { characterId: id };
+    root.traverse((child) => {
+      child.userData = { ...child.userData, characterId: id };
+    });
+
     return {
       id,
       root,
@@ -291,8 +300,14 @@ export class ChibiCharacters3D {
       leftLegPivot,
       rightLegPivot,
       flashMaterials,
-      basePhase: idx * 1.4
+      basePhase: idx * 1.4,
+      isStepping: false,
+      eliminated: false
     };
+  }
+
+  public getParentGroup(): THREE.Group {
+    return this.parentGroup;
   }
 
   public getCharacterWorldPosition(id: CharacterId): THREE.Vector3 {
@@ -300,15 +315,72 @@ export class ChibiCharacters3D {
     return rig ? rig.root.position.clone() : new THREE.Vector3();
   }
 
-  public placeCharacterAt(id: CharacterId, targetPos: THREE.Vector3, rotationY = 0): void {
+  public placeCharacterAt(
+    id: CharacterId,
+    targetPos: THREE.Vector3,
+    rotationY?: number,
+    rotX = 0,
+    rotZ = 0,
+    scale = 1
+  ): void {
     const rig = this.rigs.get(id);
     if (!rig) return;
     rig.root.position.copy(targetPos);
-    rig.root.rotation.y = rotationY;
+    if (typeof rotationY === 'number') {
+      rig.root.rotation.y = rotationY;
+    }
+    rig.root.rotation.x = rotX;
+    rig.root.rotation.z = rotZ;
+    rig.root.scale.setScalar(scale);
   }
 
   /**
-   * Executes 1-tile step movement with the character's signature animation:
+   * Synchronizes an idle character's position, tilt (rotX, rotZ), and scale with the tile it is standing on.
+   * When a tile is clicked and elevates (+0.94Y) + tilts (~27°) toward the camera, any character standing
+   * on that tile smoothly rises and tilts along with the tile!
+   */
+  public syncCharacterToTileTransform(
+    id: CharacterId,
+    tf: { position: THREE.Vector3; rotX: number; rotZ: number; scale: number }
+  ): void {
+    const rig = this.rigs.get(id);
+    if (!rig || rig.isStepping || rig.eliminated) return;
+    rig.root.position.copy(tf.position);
+    rig.root.rotation.x = tf.rotX;
+    rig.root.rotation.z = tf.rotZ;
+    rig.root.scale.setScalar(tf.scale);
+  }
+
+  public eliminateCharacter(id: CharacterId): void {
+    const rig = this.rigs.get(id);
+    if (!rig || rig.eliminated) return;
+    rig.eliminated = true;
+    this.particles.spawnCreeperTntExplosion(rig.root.position.clone());
+    gsap.to(rig.visualGroup.scale, {
+      x: 0.01,
+      y: 0.01,
+      z: 0.01,
+      duration: 0.45,
+      ease: 'back.in(2)',
+      onComplete: () => {
+        rig.root.visible = false;
+      }
+    });
+  }
+
+  public resetAllCharactersVisibility(): void {
+    this.rigs.forEach((rig) => {
+      rig.eliminated = false;
+      rig.isStepping = false;
+      rig.root.visible = true;
+      rig.root.rotation.set(0, 0, 0);
+      rig.root.scale.setScalar(1);
+      rig.visualGroup.scale.set(1, 1, 1);
+    });
+  }
+
+  /**
+   * Executes 1-tile step movement with the character's signature animation AND dynamic tile tilt:
    * - steve / alex: Parabolic hop + opposite limb swing + Squash & Stretch + White dust particles
    * - enderman: Instant portal teleport + Purple portal particle burst at origin & destination
    * - creeper: Swell & flash white fuse + TNT explosion particles + respawn bounce at destination
@@ -317,10 +389,15 @@ export class ChibiCharacters3D {
     id: CharacterId,
     fromPos: THREE.Vector3,
     toPos: THREE.Vector3,
-    stepIdx = 0
+    stepIdx = 0,
+    speedMultiplier = 1,
+    fromTilt: { rotX: number; rotZ: number; scale: number } = { rotX: 0, rotZ: 0, scale: 1 },
+    toTilt: { rotX: number; rotZ: number; scale: number } = { rotX: 0, rotZ: 0, scale: 1 }
   ): Promise<void> {
     const rig = this.rigs.get(id);
-    if (!rig) return Promise.resolve();
+    if (!rig || rig.eliminated) return Promise.resolve();
+
+    rig.isStepping = true;
 
     // Face direction of movement
     const dx = toPos.x - fromPos.x;
@@ -329,13 +406,18 @@ export class ChibiCharacters3D {
       rig.root.rotation.y = Math.atan2(dx, dz);
     }
 
-    if (id === 'enderman') {
-      return this.animateEndermanTeleportStep(rig, fromPos, toPos);
-    }
-    if (id === 'creeper') {
-      return this.animateCreeperExplosionStep(rig, fromPos, toPos);
-    }
-    return this.animateParabolaHopStep(rig, fromPos, toPos, stepIdx);
+    const speedFactor = Math.max(1, Math.min(4.5, 1 + (speedMultiplier - 1) * 0.75));
+
+    const donePromise =
+      id === 'enderman'
+        ? this.animateEndermanTeleportStep(rig, fromPos, toPos, speedFactor, fromTilt, toTilt)
+        : id === 'creeper'
+          ? this.animateCreeperExplosionStep(rig, fromPos, toPos, speedFactor, fromTilt, toTilt)
+          : this.animateParabolaHopStep(rig, fromPos, toPos, stepIdx, speedFactor, fromTilt, toTilt);
+
+    return donePromise.finally(() => {
+      rig.isStepping = false;
+    });
   }
 
   /**
@@ -345,7 +427,10 @@ export class ChibiCharacters3D {
     rig: ChibiRig,
     fromPos: THREE.Vector3,
     toPos: THREE.Vector3,
-    stepIdx: number
+    stepIdx: number,
+    speedFactor: number,
+    fromTilt: { rotX: number; rotZ: number; scale: number },
+    toTilt: { rotX: number; rotZ: number; scale: number }
   ): Promise<void> {
     return new Promise((resolve) => {
       soundManager.playStepBoing(stepIdx);
@@ -353,7 +438,7 @@ export class ChibiCharacters3D {
 
       gsap.to(state, {
         t: 1,
-        duration: 0.34,
+        duration: 0.34 / speedFactor,
         ease: 'power1.inOut',
         onUpdate: () => {
           const t = state.t;
@@ -362,6 +447,11 @@ export class ChibiCharacters3D {
           // Parabolic arc height = 0.85
           const arcY = Math.sin(t * Math.PI) * 0.85;
           rig.root.position.y = THREE.MathUtils.lerp(fromPos.y, toPos.y, t) + arcY;
+
+          // Interpolate surface tilt & scale so passing over an elevated tilted tile tilts the character too!
+          rig.root.rotation.x = THREE.MathUtils.lerp(fromTilt.rotX, toTilt.rotX, t);
+          rig.root.rotation.z = THREE.MathUtils.lerp(fromTilt.rotZ, toTilt.rotZ, t);
+          rig.root.scale.setScalar(THREE.MathUtils.lerp(fromTilt.scale, toTilt.scale, t));
 
           // Swing arms and legs in opposite directions
           const swing = Math.sin(t * Math.PI * 2) * 0.78;
@@ -375,6 +465,9 @@ export class ChibiCharacters3D {
         },
         onComplete: () => {
           rig.root.position.copy(toPos);
+          rig.root.rotation.x = toTilt.rotX;
+          rig.root.rotation.z = toTilt.rotZ;
+          rig.root.scale.setScalar(toTilt.scale);
           rig.leftArmPivot.rotation.x = 0;
           rig.rightArmPivot.rotation.x = 0;
           rig.leftLegPivot.rotation.x = 0;
@@ -392,21 +485,21 @@ export class ChibiCharacters3D {
               x: 1.28,
               y: 0.7,
               z: 1.28,
-              duration: 0.07,
+              duration: 0.07 / speedFactor,
               ease: 'power2.out'
             })
             .to(rig.visualGroup.scale, {
               x: 0.94,
               y: 1.1,
               z: 0.94,
-              duration: 0.08,
+              duration: 0.08 / speedFactor,
               ease: 'power2.out'
             })
             .to(rig.visualGroup.scale, {
               x: 1,
               y: 1,
               z: 1,
-              duration: 0.08,
+              duration: 0.08 / speedFactor,
               ease: 'back.out(2)'
             });
         }
@@ -420,7 +513,10 @@ export class ChibiCharacters3D {
   private animateEndermanTeleportStep(
     rig: ChibiRig,
     fromPos: THREE.Vector3,
-    toPos: THREE.Vector3
+    toPos: THREE.Vector3,
+    speedFactor: number,
+    _fromTilt: { rotX: number; rotZ: number; scale: number },
+    toTilt: { rotX: number; rotZ: number; scale: number }
   ): Promise<void> {
     return new Promise((resolve) => {
       soundManager.playEndermanTeleport();
@@ -433,12 +529,15 @@ export class ChibiCharacters3D {
         x: 0.15,
         y: 1.75,
         z: 0.15,
-        duration: 0.11,
+        duration: 0.11 / speedFactor,
         ease: 'power2.in'
       })
         .call(() => {
-          // Instant teleport to next tile
+          // Instant teleport to next tile (matching elevated/tilted surface if any!)
           rig.root.position.copy(toPos);
+          rig.root.rotation.x = toTilt.rotX;
+          rig.root.rotation.z = toTilt.rotZ;
+          rig.root.scale.setScalar(toTilt.scale);
           this.particles.spawnEndermanPortalParticles(toPos);
         })
         // Materialize with squash & bounce
@@ -446,14 +545,14 @@ export class ChibiCharacters3D {
           x: 1.22,
           y: 0.78,
           z: 1.22,
-          duration: 0.1,
+          duration: 0.1 / speedFactor,
           ease: 'power2.out'
         })
         .to(rig.visualGroup.scale, {
           x: 1,
           y: 1,
           z: 1,
-          duration: 0.12,
+          duration: 0.12 / speedFactor,
           ease: 'elastic.out(1, 0.5)'
         });
     });
@@ -465,7 +564,10 @@ export class ChibiCharacters3D {
   private animateCreeperExplosionStep(
     rig: ChibiRig,
     fromPos: THREE.Vector3,
-    toPos: THREE.Vector3
+    toPos: THREE.Vector3,
+    speedFactor: number,
+    _fromTilt: { rotX: number; rotZ: number; scale: number },
+    toTilt: { rotX: number; rotZ: number; scale: number }
   ): Promise<void> {
     return new Promise((resolve) => {
       soundManager.playCreeperStepBoom();
@@ -491,7 +593,7 @@ export class ChibiCharacters3D {
           x: 1.42,
           y: 1.35,
           z: 1.42,
-          duration: 0.14,
+          duration: 0.14 / speedFactor,
           ease: 'power2.in'
         })
         // Phase 2: BOOM! Spawn TNT fire & smoke explosion at old tile, hide briefly, move to next tile
@@ -500,6 +602,9 @@ export class ChibiCharacters3D {
           this.particles.spawnCreeperTntExplosion(fromPos);
           rig.visualGroup.scale.set(0.01, 0.01, 0.01);
           rig.root.position.copy(toPos);
+          rig.root.rotation.x = toTilt.rotX;
+          rig.root.rotation.z = toTilt.rotZ;
+          rig.root.scale.setScalar(toTilt.scale);
           this.particles.spawnFootstepDust(toPos, '#86efac');
         })
         // Phase 3: Respawn pop-up at next tile!
@@ -507,14 +612,14 @@ export class ChibiCharacters3D {
           x: 1.2,
           y: 0.82,
           z: 1.2,
-          duration: 0.12,
+          duration: 0.12 / speedFactor,
           ease: 'back.out(2.5)'
         })
         .to(rig.visualGroup.scale, {
           x: 1,
           y: 1,
           z: 1,
-          duration: 0.11,
+          duration: 0.11 / speedFactor,
           ease: 'elastic.out(1, 0.5)'
         });
     });

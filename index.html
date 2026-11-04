@@ -19,7 +19,7 @@
       <!-- 2D Parabolic Flying '$' Overlay Container -->
       <div id="fx-2d-overlay" class="fx-2d-overlay" aria-hidden="true"></div>
 
-      <!-- Redesigned Top Navigation Bar (Vietnamese Font + Camera Normal/Live [F] + Reset [R] + Settings) -->
+      <!-- Top Navigation Bar (Vietnamese Font + Camera Normal/Live [F] + Reset [R] + Settings) -->
       <header id="top-hud">
         <div class="brand-badge">
           <span class="brand-icon">⛏️</span>
@@ -37,14 +37,14 @@
             <button
               id="btn-cam-normal"
               class="cam-seg-btn active"
-              title="Camera Normal: Góc nhìn toàn cảnh 45°, click vào ô để lướt mượt tới xem (Phím tắt: F)"
+              title="Camera Normal: Kéo chuột tự do mọi góc độ, click vào nhân vật hoặc bấm A/D để Follow (Phím tắt: F)"
             >
               <span>🎥 Normal</span>
             </button>
             <button
               id="btn-cam-live"
               class="cam-seg-btn"
-              title="Camera Live: Tự động di chuyển bám theo nhân vật đang tới lượt (Phím tắt: F)"
+              title="Camera Live: Góc máy đạo diễn 3 pha tự động bám theo nhân vật (Phím tắt: F)"
             >
               <span>🎬 Live</span>
               <kbd class="key-hint">F</kbd>
@@ -54,7 +54,7 @@
           <button
             id="btn-cam-reset"
             class="cam-reset-btn"
-            title="Đưa camera lướt mượt về góc nhìn toàn cảnh 45° (Phím tắt: R)"
+            title="Hủy theo dõi & đưa camera về góc nhìn toàn cảnh (Phím tắt: R)"
           >
             <span>🔄 Toàn Cảnh</span>
             <kbd class="key-hint">R</kbd>
@@ -83,11 +83,11 @@
             </svg>
           </button>
 
-          <!-- Redesigned Modern Settings Popover Menu -->
+          <!-- Streamlined Modern Settings Popover Menu (SFX, BGM, Master Volume, Speed Slider 1x..5x) -->
           <div id="settings-popover" class="settings-popover hidden">
             <div class="popover-title">
               <span>⚙️ CÀI ĐẶT HỆ THỐNG</span>
-              <span class="popover-version">v3.5</span>
+              <span class="popover-version">v4.0</span>
             </div>
 
             <!-- Toggle Switch: SFX -->
@@ -128,33 +128,61 @@
               />
             </div>
 
-            <!-- Game Speed Selector (1x / 2x) -->
-            <div class="popover-speed-box">
-              <span>⚡ Tốc Độ Chạy</span>
-              <div class="speed-pill-group">
-                <button id="btn-speed-1x" class="speed-pill active">1x Chuẩn</button>
-                <button id="btn-speed-2x" class="speed-pill">2x Nhanh</button>
+            <!-- Game Speed Slider (1x -> 5x) -->
+            <div class="popover-slider-box">
+              <div class="popover-slider-head">
+                <span>⚡ Tốc Độ Chạy</span>
+                <strong id="speed-multiplier-label" class="emerald-text">1x</strong>
+              </div>
+              <input
+                id="slider-game-speed"
+                type="range"
+                min="1"
+                max="5"
+                step="0.5"
+                value="1"
+                class="volume-range-slider"
+              />
+              <div class="speed-scale-ticks">
+                <span>1x</span>
+                <span>2x</span>
+                <span>3x</span>
+                <span>4x</span>
+                <span>5x</span>
               </div>
             </div>
-
-            <div class="popover-divider"></div>
-
-            <button id="btn-mode-select" class="popover-item">
-              <span>🎮 Đổi Chế Độ Chơi (4P)</span>
-              <span>➔</span>
-            </button>
-            <button id="btn-blockbench-info" class="popover-item">
-              <span>🧊 Bộ 5 Model Blockbench</span>
-              <span>➔</span>
-            </button>
           </div>
         </div>
       </header>
 
-      <!-- Highlighted 4-Player Cards Sidebar (Left: Model on Grass Block + Name + $ Coin + Active Turn Badge) -->
+      <!-- Live Broadcast & Character Follow Status Banner (Supports A / D keys & 3D Model Click) -->
+      <div id="camera-follow-banner" class="camera-follow-banner hidden">
+        <span class="live-dot-pulse" id="follow-banner-dot"></span>
+        <span id="follow-banner-text">🔴 LIVE • Đang theo dõi: Steve — Ô #0</span>
+        <div class="follow-key-group">
+          <button
+            id="btn-follow-prev"
+            class="follow-nav-btn"
+            title="Chuyển sang nhân vật trước (Phím A)"
+          >
+            <span>◀</span>
+            <kbd class="key-hint">A</kbd>
+          </button>
+          <button
+            id="btn-follow-next"
+            class="follow-nav-btn"
+            title="Chuyển sang nhân vật kế tiếp (Phím D)"
+          >
+            <span>▶</span>
+            <kbd class="key-hint">D</kbd>
+          </button>
+        </div>
+      </div>
+
+      <!-- Highlighted 4-Player Cards Sidebar (Left: Model on Grass Block + Name + $ Coin + Status Badges) -->
       <aside id="players-sidebar" aria-label="Danh sách 4 người chơi"></aside>
 
-      <!-- Bottom-Left Non-Intrusive Tile Info Popup (Shown AFTER smooth camera fly-to completes!) -->
+      <!-- Bottom-Left Non-Intrusive Tile Info Popup (Shows ONLY Configured Tile Fields!) -->
       <section
         id="tile-popup-bottom-left"
         class="tile-popup-bottom-left hidden"
@@ -163,7 +191,7 @@
         <div class="tile-popup-header" id="tile-popup-header">
           <div class="tile-popup-title-row">
             <span id="tile-popup-icon">🚩</span>
-            <h3 id="tile-popup-title">#0 Ô Khởi Hành</h3>
+            <h3 id="tile-popup-title">#0 Đại Lộ Khởi Hành</h3>
           </div>
           <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng và hạ ô đất (Esc)">
             ✕
@@ -207,7 +235,7 @@
         </button>
       </div>
 
-      <!-- Floating Action Modal (Mua Đất [Space] / Bỏ Qua [Esc] / Nâng Cấp Nhà [Space] / Cổng Dịch Chuyển) -->
+      <!-- Floating Action Modal (Mua Đất [Space] / Bỏ Qua [Esc] / Xác Nhận Thanh Toán [Space] / Phá Sản [Space]) -->
       <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">
         <div class="action-card-inner" id="action-card-inner"></div>
       </div>
@@ -228,77 +256,6 @@
           <span id="btn-roll-text">TUNG XÚC XẮC</span>
           <kbd class="key-hint">Space</kbd>
         </button>
-      </div>
-
-      <!-- Game Mode & Setup Modal -->
-      <div id="setup-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
-        <div class="modal-box">
-          <div class="modal-header">
-            <h2>🎮 Chế Độ Chơi & Thiết Lập Bản Đồ 40 Ô</h2>
-            <button id="btn-close-setup" class="modal-close-btn">✕</button>
-          </div>
-          <div class="modal-content">
-            <div class="mode-tabs">
-              <button class="mode-tab active" data-mode="SOLO_VS_AI">
-                🤖 1 Người + 3 Bot AI
-                <small>Đấu với 3 AI thông minh trên bản đồ 40 ô</small>
-              </button>
-              <button class="mode-tab" data-mode="PASS_AND_PLAY">
-                👨‍👩‍👧‍👦 2–4 Người Chung Máy
-                <small>Pass & Play luân phiên cùng bạn bè</small>
-              </button>
-              <button class="mode-tab" data-mode="ONLINE_ROOM">
-                🌐 4 Người Online (Phòng Chơi)
-                <small>Đồng bộ thời gian thực qua Mã Phòng</small>
-              </button>
-            </div>
-
-            <div class="setup-section">
-              <label class="setup-label">Số lượng người chơi (Chế độ Pass & Play):</label>
-              <div class="human-count-row" id="human-count-row">
-                <button class="count-chip" data-humans="1">1 Người + 3 Bot</button>
-                <button class="count-chip active" data-humans="2">2 Người + 2 Bot</button>
-                <button class="count-chip" data-humans="3">3 Người + 1 Bot</button>
-                <button class="count-chip" data-humans="4">4 Người (0 Bot)</button>
-              </div>
-            </div>
-
-            <div class="setup-section" id="online-room-section" style="display: none;">
-              <label class="setup-label">Mã Phòng Online:</label>
-              <div class="room-input-row">
-                <input id="input-room-code" type="text" value="ASTRO-888" class="room-input" />
-                <button id="btn-join-room" class="hud-btn hud-btn-accent">🔗 Kết Nối Phòng</button>
-              </div>
-              <p class="room-status-note" id="room-status-note">Trạng thái: Sẵn sàng đồng bộ qua BroadcastChannel</p>
-            </div>
-
-            <div class="modal-footer">
-              <button id="btn-start-new-game" class="btn-primary-large">🚀 BẮT ĐẦU VÁN MỚI NGAY ($1,500)</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Blockbench Info Modal -->
-      <div id="blockbench-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
-        <div class="modal-box">
-          <div class="modal-header">
-            <h2>🧊 Bộ 5 File Model 3D Chuẩn Blockbench (.bbmodel)</h2>
-            <button id="btn-close-blockbench" class="modal-close-btn">✕</button>
-          </div>
-          <div class="modal-content">
-            <p class="bb-intro">
-              Hệ thống đã tạo sẵn <strong>5 file dự án Blockbench gốc (<code>.bbmodel</code>)</strong> chuẩn tỉ lệ Chibi (Đầu to <code>1.2x</code>) tại thư mục <code>blockbench-models/</code>:
-            </p>
-            <ul class="bb-file-list">
-              <li><code>blockbench-models/steve_chibi.bbmodel</code> — Model Steve Chibi</li>
-              <li><code>blockbench-models/alex_chibi.bbmodel</code> — Model Alex Chibi</li>
-              <li><code>blockbench-models/creeper_chibi.bbmodel</code> — Model Creeper Chibi</li>
-              <li><code>blockbench-models/enderman_chibi.bbmodel</code> — Model Enderman Chibi</li>
-              <li><code>blockbench-models/buildings_voxel.bbmodel</code> — Bộ 4 cấp công trình + Cổng The End</li>
-            </ul>
-          </div>
-        </div>
       </div>
     </div>
 

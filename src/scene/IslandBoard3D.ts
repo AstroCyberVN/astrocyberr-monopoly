@@ -817,14 +817,45 @@ export class IslandBoard3D {
       this.root.add(tier);
     }
 
+    const centerBeaconBlock = new THREE.Group();
+    centerBeaconBlock.position.set(0, 0.83, 0);
+    const centerObsidian = new THREE.Mesh(
+      new THREE.BoxGeometry(0.62, 0.14, 0.62),
+      new THREE.MeshStandardMaterial({ map: this.obsidianTexture, roughness: 0.65 })
+    );
+    centerObsidian.position.set(0, 0.07, 0);
+    const centerStar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.36, 0.36, 0.36),
+      new THREE.MeshBasicMaterial({ map: this.beaconCoreTexture })
+    );
+    centerStar.position.set(0, 0.34, 0);
+    const centerGlass = new THREE.Mesh(
+      new THREE.BoxGeometry(0.64, 0.64, 0.64),
+      new THREE.MeshStandardMaterial({
+        map: this.beaconGlassTexture,
+        transparent: true,
+        alphaTest: 0.05,
+        opacity: 0.9,
+        roughness: 0.1,
+        depthWrite: false
+      })
+    );
+    centerGlass.position.set(0, 0.32, 0);
+    centerBeaconBlock.add(centerObsidian, centerStar, centerGlass);
+    this.root.add(centerBeaconBlock);
+
     const beaconMat = new THREE.MeshBasicMaterial({
       map: this.beaconBeamTexture,
       color: '#34d399',
       transparent: true,
-      opacity: 0.25
+      opacity: 0.28,
+      depthWrite: false
     });
-    this.beaconBeam = new THREE.Mesh(new THREE.BoxGeometry(0.75, 4.5, 0.75), beaconMat);
-    this.beaconBeam.position.set(0, 2.6, 0);
+    const centerBeamGeo = new THREE.BoxGeometry(0.52, 4.8, 0.52);
+    // Anchor bottom of the beam strictly at y = 0 so it never overflows below the Beacon block!
+    centerBeamGeo.translate(0, 2.4, 0);
+    this.beaconBeam = new THREE.Mesh(centerBeamGeo, beaconMat);
+    this.beaconBeam.position.set(0, 1.15, 0);
     this.root.add(this.beaconBeam);
 
     const railRadius = 6.8;
@@ -1148,12 +1179,13 @@ export class IslandBoard3D {
 
   /**
    * Initializes the Authentic Minecraft Target Destination Beacon:
-   * - 9 Iron Blocks (3x3 Grid) with 16x16 pixel-art Iron Block texture floating higher at y = 2.75
-   * - Authentic Minecraft Beacon Block on top (y = 3.22):
+   * - 9 Iron Blocks (3x3 Grid) with 16x16 pixel-art Iron Block texture floating high at y = 3.75
+   * - Authentic Minecraft Beacon Block on top (y = 3.93):
    *   + 3-pixel Obsidian Base Pedestal
    *   + Rotating Glowing Nether Star Core inside
    *   + 16x16 Pixel-Art Glass Shell outside
-   * - Dual Counter-Rotating Scrolling Energy Light Beam shooting 24 units into the sky!
+   * - Dual Counter-Rotating Scrolling Energy Light Beam anchored strictly at the Nether Star Core (y = 0.27 inside beaconUnitGroup)
+   *   so it shoots 24 units straight up into the sky and NEVER overflows below the Beacon block!
    */
   private initTargetBeaconWithAuthenticTextures(): void {
     this.targetBeaconGroup = new THREE.Group();
@@ -1162,7 +1194,7 @@ export class IslandBoard3D {
 
     this.targetIronBaseGroup = new THREE.Group();
 
-    // 1. 9 Iron Blocks (3x3 Grid) with authentic 16x16 Iron Block pixel texture at y = 2.75
+    // 1. 9 Iron Blocks (3x3 Grid) raised higher to y = 3.75
     const ironGeo = new THREE.BoxGeometry(0.48, 0.36, 0.48);
     const ironMat = new THREE.MeshStandardMaterial({
       map: this.ironBlockTexture,
@@ -1174,16 +1206,16 @@ export class IslandBoard3D {
     for (let gx = -1; gx <= 1; gx++) {
       for (let gz = -1; gz <= 1; gz++) {
         const ironBlock = new THREE.Mesh(ironGeo, ironMat);
-        ironBlock.position.set(gx * step, 2.75, gz * step);
+        ironBlock.position.set(gx * step, 3.75, gz * step);
         ironBlock.castShadow = true;
         ironBlock.receiveShadow = true;
         this.targetIronBaseGroup.add(ironBlock);
       }
     }
 
-    // 2. Authentic Minecraft Beacon Block sitting at y = 3.20 atop the center Iron Block
+    // 2. Authentic Minecraft Beacon Block sitting at y = 3.93 atop the center Iron Block
     const beaconUnitGroup = new THREE.Group();
-    beaconUnitGroup.position.set(0, 2.93, 0);
+    beaconUnitGroup.position.set(0, 3.93, 0);
 
     // 2a. Obsidian Base Slab (bottom 3/16 of the Beacon block)
     const obsidianBase = new THREE.Mesh(
@@ -1221,11 +1253,10 @@ export class IslandBoard3D {
     glassShell.position.set(0, 0.25, 0);
     beaconUnitGroup.add(glassShell);
 
-    this.targetIronBaseGroup.add(beaconUnitGroup);
-    this.targetBeaconGroup.add(this.targetIronBaseGroup);
-
-    // 3. Multi-Layer Animated Minecraft Light Beam (Tall: 24 units high + lower spotlight to tile)
+    // 3. Multi-Layer Animated Minecraft Light Beam anchored at y = 0 (bottom edge) and placed at y = 0.27 inside beaconUnitGroup
+    //    so it shoots strictly UPWARD from the Nether Star core and NEVER overflows below the Beacon!
     const innerBeamGeo = new THREE.BoxGeometry(0.32, 24.0, 0.32);
+    innerBeamGeo.translate(0, 12.0, 0);
     const innerBeamMat = new THREE.MeshBasicMaterial({
       map: this.beaconBeamTexture,
       color: '#ecfeff',
@@ -1234,11 +1265,12 @@ export class IslandBoard3D {
       depthWrite: false
     });
     this.targetBeamInner = new THREE.Mesh(innerBeamGeo, innerBeamMat);
-    this.targetBeamInner.position.set(0, 12.6, 0);
-    this.targetBeaconGroup.add(this.targetBeamInner);
+    this.targetBeamInner.position.set(0, 0.27, 0);
+    beaconUnitGroup.add(this.targetBeamInner);
 
-    // Outer translucent counter-rotating square aura tube (just like vanilla Minecraft Beacon!)
+    // Outer translucent counter-rotating square aura tube (anchored at bottom edge y = 0)
     const outerBeamGeo = new THREE.BoxGeometry(0.58, 24.0, 0.58);
+    outerBeamGeo.translate(0, 12.0, 0);
     const outerBeamMat = new THREE.MeshBasicMaterial({
       map: this.beaconBeamTexture,
       color: '#34d399',
@@ -1247,8 +1279,11 @@ export class IslandBoard3D {
       depthWrite: false
     });
     this.targetBeamOuter = new THREE.Mesh(outerBeamGeo, outerBeamMat);
-    this.targetBeamOuter.position.set(0, 12.6, 0);
-    this.targetBeaconGroup.add(this.targetBeamOuter);
+    this.targetBeamOuter.position.set(0, 0.27, 0);
+    beaconUnitGroup.add(this.targetBeamOuter);
+
+    this.targetIronBaseGroup.add(beaconUnitGroup);
+    this.targetBeaconGroup.add(this.targetIronBaseGroup);
 
     this.root.add(this.targetBeaconGroup);
   }
@@ -1523,8 +1558,27 @@ export class IslandBoard3D {
     this.root.add(this.cloudsGroup);
   }
 
-  public getTileStandPosition(tileIndex: number, playerSlot = 0): THREE.Vector3 {
-    const tile = BOARD_TILES[((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
+  public getElevatedTileIndex(): number | null {
+    return this.elevatedTileIndex;
+  }
+
+  /**
+   * Computes the exact live 3D world position, surface tilt (rotX, rotZ), and scale
+   * for any character standing on or passing through `tileIndex`.
+   * When a tile is elevated (+0.94Y) and tilted diagonally (~27°) toward the camera,
+   * characters on that tile smoothly elevate and tilt along with the tile surface!
+   */
+  public getTileStandTransform(
+    tileIndex: number,
+    playerSlot = 0
+  ): {
+    position: THREE.Vector3;
+    rotX: number;
+    rotZ: number;
+    scale: number;
+  } {
+    const idx = ((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    const tile = BOARD_TILES[idx];
     const offsets = [
       { dx: -0.34, dz: -0.22 },
       { dx: 0.34, dz: -0.22 },
@@ -1532,11 +1586,36 @@ export class IslandBoard3D {
       { dx: 0.34, dz: 0.34 }
     ];
     const off = offsets[playerSlot % 4];
-    return new THREE.Vector3(
-      tile.gridX * TILE_SPACING + off.dx,
-      0.59,
-      tile.gridZ * TILE_SPACING + off.dz
-    );
+    const container = this.tileContainerGroups[idx];
+
+    if (!container) {
+      return {
+        position: new THREE.Vector3(
+          tile.gridX * TILE_SPACING + off.dx,
+          0.59,
+          tile.gridZ * TILE_SPACING + off.dz
+        ),
+        rotX: 0,
+        rotZ: 0,
+        scale: 1
+      };
+    }
+
+    const localPt = new THREE.Vector3(off.dx, 0.59, off.dz)
+      .multiply(container.scale)
+      .applyEuler(container.rotation)
+      .add(container.position);
+
+    return {
+      position: localPt,
+      rotX: container.rotation.x,
+      rotZ: container.rotation.z,
+      scale: container.scale.x
+    };
+  }
+
+  public getTileStandPosition(tileIndex: number, playerSlot = 0): THREE.Vector3 {
+    return this.getTileStandTransform(tileIndex, playerSlot).position;
   }
 
   public updateTileBuilding(

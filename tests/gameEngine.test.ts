@@ -3,15 +3,17 @@ import { BOARD_TILES, BOARD_SIZE, CHARACTER_CONFIGS } from '../src/core/boardDat
 import { GameEngine } from '../src/core/gameEngine';
 import { chooseBotAction } from '../src/core/botAI';
 
-describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency Liquidation', () => {
-  it('defines exactly 40 perimeter tiles with outward-facing rotation angles per side', () => {
+describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reason Confirmation & Direct Bankruptcy', () => {
+  it('defines exactly 40 perimeter tiles based on real Monopoly structure with outward-facing rotation angles', () => {
     expect(BOARD_SIZE).toBe(40);
     expect(BOARD_TILES).toHaveLength(40);
 
     expect(BOARD_TILES[0].type).toBe('START');
+    expect(BOARD_TILES[4].type).toBe('ROYAL_TAX');
     expect(BOARD_TILES[10].type).toBe('DESERTED_ISLAND');
     expect(BOARD_TILES[20].type).toBe('FESTIVAL');
     expect(BOARD_TILES[30].type).toBe('END_PORTAL');
+    expect(BOARD_TILES[33].type).toBe('NETHER_PORTAL');
 
     expect(BOARD_TILES[5].outwardRotationY).toBeCloseTo(0);
     expect(BOARD_TILES[15].outwardRotationY).toBeCloseTo(-Math.PI / 2);
@@ -19,7 +21,7 @@ describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency
     expect(BOARD_TILES[35].outwardRotationY).toBeCloseTo(Math.PI / 2);
 
     const properties = BOARD_TILES.filter((t) => t.type === 'PROPERTY');
-    expect(properties.length).toBe(24);
+    expect(properties.length).toBe(23);
     const colorGroups = new Set(properties.map((t) => t.colorGroup));
     expect(colorGroups.size).toBe(8);
   });
@@ -60,15 +62,15 @@ describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency
     expect(rollNormal.total).toBe(8);
   });
 
-  it('auto-liquidates owned properties at 75% value to save a player from bankruptcy', () => {
+  it('auto-liquidates owned properties at 75% value to save a player from tax bankruptcy', () => {
     const engine = new GameEngine('PASS_AND_PLAY', 2);
     const [p0] = engine.getPlayers();
-    p0.gold = 500;
-    // Buy Tile 39 (price $450 -> 75% resale value = $338)
+    p0.gold = 450;
+    // Buy Tile 39 (Boardwalk price $400 -> 75% resale value = $300)
     engine.buyProperty(p0.id, 39);
     expect(p0.gold).toBe(50);
 
-    // Land on Royal Tax #36 (-$150) -> gold drops to -$100 -> triggers auto-liquidation of Tile 39
+    // Land on Luxury Tax #36 (-$100) -> gold drops to -$50 -> triggers auto-liquidation of Tile 39
     p0.position = 36;
     engine.resolveTileLanding(p0.id);
 
@@ -82,11 +84,11 @@ describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency
     const [p0, p1] = engine.getPlayers();
     p0.gold = 3000;
 
+    // Plains set in real Monopoly layout is Tiles #1 and #3
     engine.buyProperty(p0.id, 1);
     const singleRent = engine.calculateRent(1);
 
     engine.buyProperty(p0.id, 3);
-    engine.buyProperty(p0.id, 4);
     const setRent = engine.calculateRent(1);
     expect(setRent).toBe(Math.round(singleRent * 1.5));
 
@@ -130,11 +132,11 @@ describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency
     expect(decision.tileIndex).toBe(6);
   });
 
-  it('supports Nether Portal (Tile 33) x8 Overworld dimension warp and tracks payerPrevGold/ownerPrevGold on PAID_RENT', () => {
+  it('supports Nether Portal (Tile 33) x8 Overworld dimension warp and deferred Rent Confirmation + Direct Bankruptcy', () => {
     const engine = new GameEngine('PASS_AND_PLAY', 2);
     const [p0, p1] = engine.getPlayers();
 
-    // Test Nether Portal (Tile 33): 2 Nether steps = 16 Overworld steps -> (33 + 16) % 40 = 9 (passes Start!)
+    // 1. Test Nether Portal (Tile 33): 2 Nether steps = 16 Overworld steps -> (33 + 16) % 40 = 9
     p0.position = 33;
     const beforeWarpGold = p0.gold;
     const warp = engine.warpThroughNetherPortal(p0.id, 2);
@@ -144,14 +146,29 @@ describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency
     expect(warp.passedStart).toBe(true);
     expect(p0.gold).toBe(beforeWarpGold + 120 + 200);
 
-    // Test PAID_RENT returns payerPrevGold & ownerPrevGold for unit-by-unit HUD counter
+    // 2. Test Deferred Rent Confirmation (Space) when player can afford rent
     engine.buyProperty(p0.id, 9);
     p1.position = 9;
     const p1Before = p1.gold;
-    const p0Before = p0.gold;
-    const rentRes = engine.resolveTileLanding(p1.id);
-    expect(rentRes.action).toBe('PAID_RENT');
-    expect(rentRes.payerPrevGold).toBe(p1Before);
-    expect(rentRes.ownerPrevGold).toBe(p0Before);
+    const rentPreview = engine.resolveTileLanding(p1.id, { deferRentPayment: true });
+    expect(rentPreview.action).toBe('PAID_RENT');
+    expect(rentPreview.canAffordRent).toBe(true);
+    expect(rentPreview.rentReason).toContain('Quảng Trường Tháp Đồng Hồ');
+    // Gold is NOT deducted until executeConfirmedRentPayment is called!
+    expect(p1.gold).toBe(p1Before);
+
+    const confirmed = engine.executeConfirmedRentPayment(p1.id, 9);
+    expect(confirmed.bankrupt).toBe(false);
+    expect(p1.gold).toBe(p1Before - confirmed.paidAmount);
+
+    // 3. Test Direct Bankruptcy Elimination when player cannot afford rent
+    p1.gold = 10; // Rent on Tile #9 is $40, p1 only has $10
+    const bankruptPreview = engine.resolveTileLanding(p1.id, { deferRentPayment: true });
+    expect(bankruptPreview.canAffordRent).toBe(false);
+
+    const bankruptExec = engine.executeConfirmedRentPayment(p1.id, 9);
+    expect(bankruptExec.bankrupt).toBe(true);
+    expect(p1.bankrupt).toBe(true);
+    expect(p1.gold).toBe(0);
   });
 });
