@@ -12,34 +12,28 @@ export interface BotDecision {
   reason: string;
 }
 
-const SAFETY_CASH_RESERVE = 140;
+const SAFETY_CASH_RESERVE = 150;
 
-/**
- * Heuristic AI evaluator for Bot players:
- * - Prioritizes completing a 2-tile Monopoly color set even with lower cash reserve
- * - Buys unowned properties/railroads when gold - price >= SAFETY_CASH_RESERVE
- * - Upgrades owned properties when gold - upgradeCost >= SAFETY_CASH_RESERVE
- * - Selects the highest-rent owned property for Festival 2x boost
- * - Selects the highest-value unowned/set-completing tile (or Start) for The End Portal
- */
 export function chooseBotAction(engine: GameEngine, botPlayerId: string): BotDecision {
   const bot = engine.getPlayerById(botPlayerId);
   const pos = bot.position;
   const cfg = engine.getTileConfig(pos);
   const state = engine.getTileState(pos);
 
-  // 1. Unowned Property or Railroad
-  if ((cfg.type === 'PROPERTY' || cfg.type === 'RAILROAD') && state.ownerId === null) {
+  // 1. Unowned Property, Railroad, or Utility
+  if (
+    (cfg.type === 'PROPERTY' || cfg.type === 'RAILROAD' || cfg.type === 'UTILITY') &&
+    state.ownerId === null
+  ) {
     const price = cfg.price ?? 100;
     if (bot.gold >= price) {
-      const completesColorSet =
-        cfg.colorGroup &&
-        BOARD_TILES.some(
-          (t) =>
-            t.index !== pos &&
-            t.colorGroup === cfg.colorGroup &&
-            engine.getTileState(t.index).ownerId === bot.id
-        );
+      const groupTiles = cfg.colorGroup
+        ? BOARD_TILES.filter((t) => t.colorGroup === cfg.colorGroup)
+        : [];
+      const ownedInGroup = groupTiles.filter(
+        (t) => engine.getTileState(t.index).ownerId === bot.id
+      ).length;
+      const completesColorSet = groupTiles.length > 0 && ownedInGroup === groupTiles.length - 1;
 
       if (completesColorSet || bot.gold - price >= SAFETY_CASH_RESERVE) {
         return {
@@ -81,9 +75,8 @@ export function chooseBotAction(engine: GameEngine, botPlayerId: string): BotDec
     }
   }
 
-  // 4. The End Portal -> Teleport to set-completing unowned tile or Start (0)
+  // 4. The End Portal (Tile 30) -> Teleport to set-completing unowned tile or Start (0)
   if (cfg.type === 'END_PORTAL') {
-    // Look for an unowned property that completes a color set for this bot
     for (const tile of BOARD_TILES) {
       if (tile.type === 'PROPERTY' && engine.getTileState(tile.index).ownerId === null) {
         const price = tile.price ?? 100;
@@ -97,16 +90,15 @@ export function chooseBotAction(engine: GameEngine, botPlayerId: string): BotDec
           return {
             type: 'TELEPORT_TARGET',
             tileIndex: tile.index,
-            reason: `Bay tới [${tile.name}] để gom trọn bộ màu!`
+            reason: `Bay tới [${tile.name}] để gom bộ màu!`
           };
         }
       }
     }
 
-    // Otherwise, if affordable, pick an unowned railroad or property in front of Start
     const affordableUnowned = BOARD_TILES.find(
       (t) =>
-        (t.type === 'PROPERTY' || t.type === 'RAILROAD') &&
+        (t.type === 'PROPERTY' || t.type === 'RAILROAD' || t.type === 'UTILITY') &&
         engine.getTileState(t.index).ownerId === null &&
         bot.gold >= (t.price ?? 100) + SAFETY_CASH_RESERVE
     );
@@ -122,13 +114,13 @@ export function chooseBotAction(engine: GameEngine, botPlayerId: string): BotDec
     return {
       type: 'TELEPORT_TARGET',
       tileIndex: 0,
-      reason: 'Bay về Ô Khởi Hành để nhận +200 Vàng'
+      reason: 'Bay về Ô Khởi Hành để nhận +$200'
     };
   }
 
   return {
     type: 'SKIP_ACTION',
     tileIndex: pos,
-    reason: 'Giữ vàng dự phòng an toàn'
+    reason: 'Giữ $ dự phòng an toàn'
   };
 }

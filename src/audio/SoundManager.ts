@@ -10,7 +10,9 @@ export class SoundManager {
     if (typeof window === 'undefined') return null;
 
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
       }
@@ -76,6 +78,49 @@ export class SoundManager {
 
     osc.start(now);
     osc.stop(now + 0.065);
+  }
+
+  /** Tiếng phát sáng các nút xúc xắc -> bay lên -> dung hợp thành tổng */
+  public playDicePipGlowAndFuse(): void {
+    if (!this.sfxEnabled) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    // Rising magical chime when pips glow & lift
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      const t = now + i * 0.09;
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.06, t + 0.14);
+
+      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.19);
+    });
+
+    // Fusion impact chord at +0.62s
+    const chord = [523.25, 783.99, 1046.5, 1567.98];
+    chord.forEach((freq) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      const t = now + 0.62;
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.11, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.44);
+    });
   }
 
   /** Tiếng boing dễ thương khi Steve & Alex nhảy lò cò từng ô */
@@ -145,7 +190,6 @@ export class SoundManager {
 
     const now = ctx.currentTime;
 
-    // 1. Short fuse hiss (0..0.09s)
     const bufferSize = Math.floor(ctx.sampleRate * 0.26);
     const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = noiseBuffer.getChannelData(0);
@@ -172,7 +216,6 @@ export class SoundManager {
     noise.start(now);
     noise.stop(now + 0.26);
 
-    // 2. TNT Punch Sub-drop at 0.08s
     const sub = ctx.createOscillator();
     const subGain = ctx.createGain();
     sub.type = 'triangle';
@@ -189,14 +232,14 @@ export class SoundManager {
     sub.stop(now + 0.26);
   }
 
-  /** Tiếng ting-ting 8-Bit khi nhận Vàng (+200G qua Khởi Hành / Nhận tiền thuê) */
+  /** Tiếng ting-ting 8-Bit khi nhận $ */
   public playCoinChime(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const notes = [987.77, 1318.51]; // B5 -> E6
+    const notes = [987.77, 1318.51];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -214,14 +257,14 @@ export class SoundManager {
     });
   }
 
-  /** Tiếng mọc nhà nảy lùn phùn (Cọc rào -> Nhà gỗ -> Biệt thự -> Lâu đài) */
+  /** Tiếng mọc nhà nảy lùn phùn */
   public playBuildPop(level = 1): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const baseNotes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
+    const baseNotes = [523.25, 659.25, 783.99, 1046.5];
     const count = Math.max(2, Math.min(4, level + 1));
 
     for (let i = 0; i < count; i++) {
@@ -249,7 +292,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    const notes = [440, 392, 329.63]; // A4 -> G4 -> E4
+    const notes = [440, 392, 329.63];
     notes.forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();

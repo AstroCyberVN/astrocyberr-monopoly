@@ -1,3 +1,5 @@
+export const BOARD_SIZE = 40;
+
 export type TileType =
   | 'START'
   | 'PROPERTY'
@@ -6,7 +8,8 @@ export type TileType =
   | 'FESTIVAL'
   | 'END_PORTAL'
   | 'ROYAL_TAX'
-  | 'RAILROAD';
+  | 'RAILROAD'
+  | 'UTILITY';
 
 export type ColorGroupId =
   | 'PLAINS'
@@ -40,7 +43,7 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     name: 'Steve',
     title: 'Thợ Mỏ Chibi',
     locomotion: 'PARABOLA_HOP',
-    locomotionDescription: 'Nhảy lò cò đường cong Parabol, vung tay chân ngược chiều + Squash & Stretch + Hạt bụi trắng',
+    locomotionDescription: 'Nhảy lò cò Parabol + Squash & Stretch + Hạt bụi trắng',
     primaryColor: '#06b6d4',
     secondaryColor: '#3b82f6',
     accentColor: '#fde047',
@@ -51,7 +54,7 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     name: 'Alex',
     title: 'Kiến Trúc Sư Chibi',
     locomotion: 'PARABOLA_HOP',
-    locomotionDescription: 'Nhảy lò cò Parabol uyển chuyển, vung tay chân ngược chiều + Squash & Stretch + Bụi trắng ánh lá',
+    locomotionDescription: 'Nhảy lò cò Parabol + Squash & Stretch + Bụi trắng ánh lá',
     primaryColor: '#22c55e',
     secondaryColor: '#f97316',
     accentColor: '#86efac',
@@ -62,7 +65,7 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     name: 'Creeper',
     title: 'Quái Vật TNT Chibi',
     locomotion: 'TNT_EXPLOSION',
-    locomotionDescription: 'Phồng người nhấp nháy rồi phát nổ BÙM như TNT (lửa + khói) và hồi sinh ngay tại ô tiếp theo!',
+    locomotionDescription: 'Phồng người nhấp nháy rồi nổ BÙM như TNT và hồi sinh tại ô tiếp theo!',
     primaryColor: '#4ade80',
     secondaryColor: '#166534',
     accentColor: '#ef4444',
@@ -73,7 +76,7 @@ export const CHARACTER_CONFIGS: CharacterConfig[] = [
     name: 'Enderman',
     title: 'Lữ Khách Không Gian',
     locomotion: 'ENDER_TELEPORT',
-    locomotionDescription: 'Dịch chuyển tức thời từng ô kèm hiệu ứng vòng xoáy hạt tím (End Portal Particles) xung quanh!',
+    locomotionDescription: 'Dịch chuyển tức thời từng ô kèm hiệu ứng vòng xoáy hạt tím!',
     primaryColor: '#a855f7',
     secondaryColor: '#18181b',
     accentColor: '#d8b4fe',
@@ -89,6 +92,17 @@ export const BUILDING_TIER_NAMES: Record<number, { name: string; icon: string }>
   4: { name: 'Lâu Đài Vương Miện', icon: '🏰' }
 };
 
+export const COLOR_GROUP_LABELS: Record<ColorGroupId, string> = {
+  PLAINS: 'Đồng Cỏ Xanh (Plains)',
+  OAK_FOREST: 'Rừng Gỗ Sồi (Oak Forest)',
+  SWAMP: 'Đầm Lầy Đom Đóm (Swamp)',
+  DESERT: 'Sa Mạc Cát Vàng (Desert)',
+  SNOWY_PEAKS: 'Đỉnh Tuyết Vĩnh Cửu (Snowy Peaks)',
+  CHERRY_GROVE: 'Thung Lũng Anh Đào (Cherry Grove)',
+  NETHER: 'Pháo Đài Lửa Đỏ (Nether)',
+  END_CITY: 'Thành Phố Không Gian (The End)'
+};
+
 export interface TileConfig {
   index: number;
   name: string;
@@ -101,41 +115,71 @@ export interface TileConfig {
   /** Rent for levels 1..4 (Fence, Cottage, Villa, Castle) */
   rents?: [number, number, number, number];
   description: string;
-  /** 3D Grid coordinates on the 8x8 perimeter (-3.5 to +3.5) */
+  /** 3D Grid coordinates on the 11x11 perimeter (-5 to +5) */
   gridX: number;
   gridZ: number;
+  /** Side index: 0=Bottom(+Z), 1=Left(-X), 2=Top(-Z), 3=Right(+X) */
+  side: 0 | 1 | 2 | 3;
+  /** Rotation around Y axis so text and 3D slanted models face OUTWARD from the board */
+  outwardRotationY: number;
 }
 
 /**
- * Helper to compute 3D perimeter coordinates for 28 tiles (indices 0..27)
- * Side 0 (Bottom, z = +3.5): x from +3.5 down to -3.5 (indices 0..7)
- * Side 1 (Left,   x = -3.5): z from +2.5 down to -3.5 (indices 8..14)
- * Side 2 (Top,    z = -3.5): x from -2.5 up to +3.5   (indices 15..21)
- * Side 3 (Right,  x = +3.5): z from -2.5 up to +2.5   (indices 22..27)
+ * Computes 3D perimeter coordinates and outward-facing rotation for 40 tiles (indices 0..39)
+ * on an 11x11 ring (grid -5 to +5):
+ * - Side 0 (Bottom, z = +5): x from +5 down to -5 (indices 0..10) -> outward normal +Z (rotY = 0)
+ * - Side 1 (Left,   x = -5): z from +4 down to -5 (indices 11..20) -> outward normal -X (rotY = -PI/2)
+ * - Side 2 (Top,    z = -5): x from -4 up to +5   (indices 21..30) -> outward normal -Z (rotY = PI)
+ * - Side 3 (Right,  x = +5): z from -4 up to +4   (indices 31..39) -> outward normal +X (rotY = PI/2)
  */
-export function getPerimeterGridCoords(index: number): { gridX: number; gridZ: number } {
-  const i = ((index % 28) + 28) % 28;
-  if (i <= 7) {
-    return { gridX: 3.5 - i, gridZ: 3.5 };
+export function getPerimeterGridCoords40(index: number): {
+  gridX: number;
+  gridZ: number;
+  side: 0 | 1 | 2 | 3;
+  outwardRotationY: number;
+} {
+  const i = ((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+  if (i <= 10) {
+    return {
+      gridX: 5 - i,
+      gridZ: 5,
+      side: 0,
+      outwardRotationY: 0
+    };
   }
-  if (i <= 14) {
-    return { gridX: -3.5, gridZ: 3.5 - (i - 7) };
+  if (i <= 20) {
+    return {
+      gridX: -5,
+      gridZ: 5 - (i - 10),
+      side: 1,
+      outwardRotationY: -Math.PI / 2
+    };
   }
-  if (i <= 21) {
-    return { gridX: -3.5 + (i - 14), gridZ: -3.5 };
+  if (i <= 30) {
+    return {
+      gridX: -5 + (i - 20),
+      gridZ: -5,
+      side: 2,
+      outwardRotationY: Math.PI
+    };
   }
-  return { gridX: 3.5, gridZ: -3.5 + (i - 21) };
+  return {
+    gridX: 5,
+    gridZ: -5 + (i - 30),
+    side: 3,
+    outwardRotationY: Math.PI / 2
+  };
 }
 
-const RAW_TILES: Omit<TileConfig, 'gridX' | 'gridZ'>[] = [
-  // Side 1: Bottom (0..6)
+const RAW_TILES_40: Omit<TileConfig, 'gridX' | 'gridZ' | 'side' | 'outwardRotationY'>[] = [
+  // ======================== SIDE 0: BOTTOM (0..9) ========================
   {
     index: 0,
     name: 'Ô Khởi Hành',
     type: 'START',
     icon: '🚩',
-    colorHex: '#fbbf24',
-    description: 'Đi qua hoặc dừng lại nhận ngay +200 Vàng!'
+    colorHex: '#10b981',
+    description: 'Đi qua hoặc dừng lại nhận ngay +$200 từ Ngân Khố Đảo Nổi!'
   },
   {
     index: 1,
@@ -144,69 +188,102 @@ const RAW_TILES: Omit<TileConfig, 'gridX' | 'gridZ'>[] = [
     icon: '🌾',
     colorGroup: 'PLAINS',
     colorHex: '#84cc16',
-    price: 100,
-    upgradeCost: 60,
-    rents: [30, 70, 150, 280],
-    description: 'Cụm Đồng Cỏ (Plains) • Đất màu mỡ dễ xây Cọc rào & Nhà gỗ.'
+    price: 60,
+    upgradeCost: 50,
+    rents: [20, 60, 140, 260],
+    description: 'Đồng cỏ xanh mướt dễ xây Cọc rào và Nhà gỗ khởi nghiệp.'
   },
   {
     index: 2,
-    name: 'Đồi Hoa Bồ Công Anh',
-    type: 'PROPERTY',
-    icon: '🌼',
-    colorGroup: 'PLAINS',
-    colorHex: '#84cc16',
-    price: 120,
-    upgradeCost: 60,
-    rents: [35, 80, 170, 320],
-    description: 'Cụm Đồng Cỏ (Plains) • Sở hữu đủ 2 ô Đồng Cỏ tăng 1.5x tiền thuê!'
+    name: 'Rương Kho Báu Thợ Mỏ',
+    type: 'CHEST',
+    icon: '🧰',
+    colorHex: '#f59e0b',
+    description: 'Mở Rương Kho Báu Minecraft để nhận thưởng $ hoặc thẻ phép thuật!'
   },
   {
     index: 3,
-    name: 'Ga Minecart Đông',
-    type: 'RAILROAD',
-    icon: '🛤️',
-    colorHex: '#78716c',
-    price: 160,
-    rents: [50, 100, 200, 400],
-    description: 'Đường Sắt Minecart • Sở hữu 1/2/3/4 ga nhận 50/100/200/400 Vàng!'
+    name: 'Đồi Hoa Hướng Dương',
+    type: 'PROPERTY',
+    icon: '🌻',
+    colorGroup: 'PLAINS',
+    colorHex: '#84cc16',
+    price: 70,
+    upgradeCost: 50,
+    rents: [25, 70, 160, 290],
+    description: 'Cánh đồng hoa rực nắng thu hút thương nhân dân làng.'
   },
   {
     index: 4,
-    name: 'Làng Thợ Mộc',
+    name: 'Trại Cừu Lông Trắng',
+    type: 'PROPERTY',
+    icon: '🐑',
+    colorGroup: 'PLAINS',
+    colorHex: '#84cc16',
+    price: 80,
+    upgradeCost: 50,
+    rents: [30, 80, 180, 320],
+    description: 'Sở hữu đủ 3 ô Đồng Cỏ giúp tăng 1.5x tiền thuê toàn cụm!'
+  },
+  {
+    index: 5,
+    name: 'Ga Minecart Nam',
+    type: 'RAILROAD',
+    icon: '🛤️',
+    colorHex: '#64748b',
+    price: 160,
+    rents: [50, 100, 200, 400],
+    description: 'Tuyến đường sắt xe mỏ phía Nam • Sở hữu 1/2/3/4 ga nhận $50/$100/$200/$400.'
+  },
+  {
+    index: 6,
+    name: 'Làng Thợ Mộc Sồi',
     type: 'PROPERTY',
     icon: '🪓',
     colorGroup: 'OAK_FOREST',
     colorHex: '#22c55e',
-    price: 140,
-    upgradeCost: 80,
-    rents: [45, 100, 210, 380],
-    description: 'Cụm Rừng Gỗ Sồi (Oak Forest) • Nguồn gỗ dồi dào cho công trình.'
+    price: 100,
+    upgradeCost: 60,
+    rents: [35, 90, 200, 360],
+    description: 'Xưởng chế tác gỗ sồi nổi tiếng nhất quần đảo.'
   },
   {
-    index: 5,
-    name: 'Rương Kho Báu Sồi',
-    type: 'CHEST',
-    icon: '🧰',
-    colorHex: '#d97706',
-    description: 'Khí Vận Minecraft • Mở rương nhận ngẫu nhiên báu vật hoặc thử thách!'
+    index: 7,
+    name: 'Thuế Thương Gia',
+    type: 'ROYAL_TAX',
+    icon: '💎',
+    colorHex: '#eab308',
+    price: 100,
+    description: 'Đóng phí bảo trì cầu cảng và đường ray đảo nổi -$100.'
   },
   {
-    index: 6,
+    index: 8,
+    name: 'Vườn Táo Đỏ Ngọt',
+    type: 'PROPERTY',
+    icon: '🍎',
+    colorGroup: 'OAK_FOREST',
+    colorHex: '#22c55e',
+    price: 110,
+    upgradeCost: 60,
+    rents: [40, 100, 220, 390],
+    description: 'Khu vườn rợp bóng cây sồi chuyên thu hoạch táo vàng.'
+  },
+  {
+    index: 9,
     name: 'Rừng Sồi Cổ Thụ',
     type: 'PROPERTY',
     icon: '🌳',
     colorGroup: 'OAK_FOREST',
     colorHex: '#22c55e',
-    price: 160,
-    upgradeCost: 80,
-    rents: [50, 115, 240, 430],
-    description: 'Cụm Rừng Gỗ Sồi (Oak Forest) • Cây sồi khổng lồ giữa đảo.'
+    price: 120,
+    upgradeCost: 60,
+    rents: [45, 110, 240, 420],
+    description: 'Cây đại thụ ngàn năm ở rìa phía Tây Nam hòn đảo.'
   },
 
-  // Side 2: Left (7..13)
+  // ======================== SIDE 1: LEFT (10..19) ========================
   {
-    index: 7,
+    index: 10,
     name: 'Đảo Hoang',
     type: 'DESERTED_ISLAND',
     icon: '🏝️',
@@ -214,228 +291,329 @@ const RAW_TILES: Omit<TileConfig, 'gridX' | 'gridZ'>[] = [
     description: 'Mắc kẹt trên Đảo Hoang! Phải nghỉ 1 lượt để chờ thuyền cứu hộ.'
   },
   {
-    index: 8,
-    name: 'Đầm Lầy Slime',
+    index: 11,
+    name: 'Đầm Lầy Slime Xanh',
     type: 'PROPERTY',
     icon: '🟢',
     colorGroup: 'SWAMP',
     colorHex: '#14b8a6',
-    price: 180,
-    upgradeCost: 100,
-    rents: [60, 130, 270, 480],
-    description: 'Cụm Đầm Lầy (Swamp) • Vùng đất nảy tưng tưng của Slime.'
+    price: 140,
+    upgradeCost: 80,
+    rents: [50, 125, 270, 470],
+    description: 'Vùng đầm lầy nảy tưng tưng giàu tài nguyên Slimeball.'
   },
   {
-    index: 9,
-    name: 'Chòi Phù Thủy',
+    index: 12,
+    name: 'Rương Kho Báu Đầm Lầy',
+    type: 'CHEST',
+    icon: '🧰',
+    colorHex: '#f59e0b',
+    description: 'Khí Vận Minecraft • Mở rương gỗ cổ dưới gốc cây đước!'
+  },
+  {
+    index: 13,
+    name: 'Rừng Đước Đom Đóm',
+    type: 'PROPERTY',
+    icon: '🐸',
+    colorGroup: 'SWAMP',
+    colorHex: '#14b8a6',
+    price: 150,
+    upgradeCost: 80,
+    rents: [55, 135, 290, 500],
+    description: 'Khu sinh thái ếch và đom đóm lung linh về đêm.'
+  },
+  {
+    index: 14,
+    name: 'Chòi Phù Thủy Bí Ẩn',
     type: 'PROPERTY',
     icon: '🧪',
     colorGroup: 'SWAMP',
     colorHex: '#14b8a6',
-    price: 200,
-    upgradeCost: 100,
-    rents: [65, 145, 300, 520],
-    description: 'Cụm Đầm Lầy (Swamp) • Nơi nấu thuốc phép thuật bí ẩn.'
+    price: 160,
+    upgradeCost: 80,
+    rents: [60, 150, 320, 540],
+    description: 'Nơi luyện thuốc tăng tốc và hồi phục của Phù Thủy.'
   },
   {
-    index: 10,
-    name: 'Ga Minecart Nam',
+    index: 15,
+    name: 'Ga Minecart Tây',
     type: 'RAILROAD',
     icon: '🛤️',
-    colorHex: '#78716c',
+    colorHex: '#64748b',
     price: 160,
     rents: [50, 100, 200, 400],
-    description: 'Đường Sắt Minecart • Sở hữu 1/2/3/4 ga nhận 50/100/200/400 Vàng!'
+    description: 'Tuyến đường sắt xe mỏ phía Tây • Sở hữu 1/2/3/4 ga nhận $50/$100/$200/$400.'
   },
   {
-    index: 11,
+    index: 16,
     name: 'Ốc Đảo Xương Rồng',
     type: 'PROPERTY',
     icon: '🌵',
     colorGroup: 'DESERT',
     colorHex: '#f59e0b',
-    price: 220,
-    upgradeCost: 120,
-    rents: [75, 165, 340, 600],
-    description: 'Cụm Sa Mạc Vàng (Desert) • Cát vàng rực rỡ bên bờ biển.'
+    price: 180,
+    upgradeCost: 100,
+    rents: [70, 170, 360, 600],
+    description: 'Trạm dừng chân mát lành giữa biển cát vàng.'
   },
   {
-    index: 12,
-    name: 'Rương Kho Báu Cát',
-    type: 'CHEST',
-    icon: '🧰',
-    colorHex: '#d97706',
-    description: 'Khí Vận Minecraft • Mở rương cổ đại ẩn giấu dưới lớp cát!'
+    index: 17,
+    name: 'Trạm Đá Đỏ Redstone',
+    type: 'UTILITY',
+    icon: '⚡',
+    colorHex: '#ef4444',
+    price: 150,
+    rents: [60, 140, 260, 420],
+    description: 'Nhà máy điện Redstone cung cấp năng lượng cho toàn bộ bàn cờ!'
   },
   {
-    index: 13,
-    name: 'Kim Tự Tháp Cát',
+    index: 18,
+    name: 'Thị Trấn Đá Cát',
+    type: 'PROPERTY',
+    icon: '🏺',
+    colorGroup: 'DESERT',
+    colorHex: '#f59e0b',
+    price: 190,
+    upgradeCost: 100,
+    rents: [75, 185, 390, 650],
+    description: 'Khu chợ gốm cổ và ngọc lục bảo nhộn nhịp.'
+  },
+  {
+    index: 19,
+    name: 'Kim Tự Tháp Vàng',
     type: 'PROPERTY',
     icon: '🏜️',
     colorGroup: 'DESERT',
     colorHex: '#f59e0b',
-    price: 240,
-    upgradeCost: 120,
-    rents: [85, 185, 380, 660],
-    description: 'Cụm Sa Mạc Vàng (Desert) • Đền thờ cổ chứa đầy vàng bạc.'
+    price: 200,
+    upgradeCost: 100,
+    rents: [85, 200, 420, 700],
+    description: 'Ngôi đền sa mạc cổ đại ẩn chứa kho báu Pharaoh.'
   },
 
-  // Side 3: Top (14..20)
+  // ======================== SIDE 2: TOP (20..29) ========================
   {
-    index: 14,
-    name: 'Ô Lễ Hội',
+    index: 20,
+    name: 'Ô Lễ Hội Làng',
     type: 'FESTIVAL',
     icon: '🎉',
     colorHex: '#ec4899',
-    description: 'Tổ chức Đại Tiệc Làng! Chọn 1 ô đất của bạn để NHÂN ĐÔI (x2) tiền thuê!'
+    description: 'Đại Tiệc Lễ Hội! Chọn 1 ô đất của bạn để NHÂN ĐÔI (x2) tiền thuê!'
   },
   {
-    index: 15,
-    name: 'Đỉnh Băng Vĩnh Cửu',
+    index: 21,
+    name: 'Sông Băng Pha Lê',
     type: 'PROPERTY',
     icon: '🧊',
     colorGroup: 'SNOWY_PEAKS',
     colorHex: '#38bdf8',
-    price: 260,
-    upgradeCost: 140,
-    rents: [90, 200, 420, 720],
-    description: 'Cụm Núi Tuyết (Snowy Peaks) • Băng tuyết lấp lánh dưới nắng.'
+    price: 220,
+    upgradeCost: 120,
+    rents: [90, 220, 460, 760],
+    description: 'Dòng sông băng vĩnh cửu phản chiếu ánh cực quang.'
   },
   {
-    index: 16,
+    index: 22,
+    name: 'Rương Kho Báu Băng Giá',
+    type: 'CHEST',
+    icon: '🧰',
+    colorHex: '#f59e0b',
+    description: 'Khí Vận Minecraft • Mở rương báu vật đóng băng trên đỉnh núi!'
+  },
+  {
+    index: 23,
     name: 'Làng Tuyết Igloo',
     type: 'PROPERTY',
     icon: '⛄',
     colorGroup: 'SNOWY_PEAKS',
     colorHex: '#38bdf8',
-    price: 280,
-    upgradeCost: 140,
-    rents: [100, 220, 450, 780],
-    description: 'Cụm Núi Tuyết (Snowy Peaks) • Những túp lều tuyết ấm áp.'
+    price: 230,
+    upgradeCost: 120,
+    rents: [95, 235, 490, 810],
+    description: 'Ngôi làng người tuyết ấm cúng giữa bão tuyết trắng.'
   },
   {
-    index: 17,
-    name: 'Ga Minecart Tây',
+    index: 24,
+    name: 'Đỉnh Núi Băng Vương',
+    type: 'PROPERTY',
+    icon: '🏔️',
+    colorGroup: 'SNOWY_PEAKS',
+    colorHex: '#38bdf8',
+    price: 240,
+    upgradeCost: 120,
+    rents: [105, 250, 520, 860],
+    description: 'Đỉnh núi cao nhất phía Bắc với tầm nhìn toàn cảnh.'
+  },
+  {
+    index: 25,
+    name: 'Ga Minecart Bắc',
     type: 'RAILROAD',
     icon: '🛤️',
-    colorHex: '#78716c',
+    colorHex: '#64748b',
     price: 160,
     rents: [50, 100, 200, 400],
-    description: 'Đường Sắt Minecart • Sở hữu 1/2/3/4 ga nhận 50/100/200/400 Vàng!'
+    description: 'Tuyến đường sắt xe mỏ phía Bắc • Sở hữu 1/2/3/4 ga nhận $50/$100/$200/$400.'
   },
   {
-    index: 18,
+    index: 26,
     name: 'Đồi Hoa Anh Đào',
     type: 'PROPERTY',
     icon: '🌸',
     colorGroup: 'CHERRY_GROVE',
     colorHex: '#f472b6',
-    price: 300,
-    upgradeCost: 160,
-    rents: [110, 240, 500, 860],
-    description: 'Cụm Rừng Anh Đào (Cherry Grove) • Cánh hoa hồng rơi lãng mạn.'
+    price: 260,
+    upgradeCost: 140,
+    rents: [115, 270, 560, 920],
+    description: 'Rừng hoa Sakura hồng phấn rơi lãng mạn quanh năm.'
   },
   {
-    index: 19,
-    name: 'Rương Kho Báu Hồng',
-    type: 'CHEST',
-    icon: '🧰',
-    colorHex: '#d97706',
-    description: 'Khí Vận Minecraft • Mở rương báu vật giữa rừng hoa anh đào!'
+    index: 27,
+    name: 'Lầu Trà Hoa Hồng',
+    type: 'PROPERTY',
+    icon: '🍵',
+    colorGroup: 'CHERRY_GROVE',
+    colorHex: '#f472b6',
+    price: 270,
+    upgradeCost: 140,
+    rents: [120, 285, 590, 970],
+    description: 'Điểm thưởng trà cao cấp của giới quý tộc đảo nổi.'
   },
   {
-    index: 20,
+    index: 28,
+    name: 'Tháp Ánh Sáng Beacon',
+    type: 'UTILITY',
+    icon: '🔮',
+    colorHex: '#38bdf8',
+    price: 150,
+    rents: [60, 140, 260, 420],
+    description: 'Tháp Hải Đăng Kim Cương chiếu sáng và ban phước toàn đảo!'
+  },
+  {
+    index: 29,
     name: 'Suối Tiên Anh Đào',
     type: 'PROPERTY',
     icon: '⛩️',
     colorGroup: 'CHERRY_GROVE',
     colorHex: '#f472b6',
-    price: 320,
-    upgradeCost: 160,
-    rents: [120, 260, 540, 920],
-    description: 'Cụm Rừng Anh Đào (Cherry Grove) • Khu nghỉ dưỡng đắt giá.'
+    price: 280,
+    upgradeCost: 140,
+    rents: [130, 300, 630, 1040],
+    description: 'Khu nghỉ dưỡng suối nước nóng đắt khách bậc nhất.'
   },
 
-  // Side 4: Right (21..27)
+  // ======================== SIDE 3: RIGHT (30..39) ========================
   {
-    index: 21,
+    index: 30,
     name: 'Cổng Dịch Chuyển The End',
     type: 'END_PORTAL',
     icon: '🌌',
     colorHex: '#9333ea',
-    description: 'Cổng The End huyền thoại! Cho phép bạn BAY TỨC THỜI tới bất kỳ ô nào trên bàn cờ!'
+    description: 'Cổng Không Gian The End! Cho phép bạn BAY TỨC THỜI tới bất kỳ ô nào trên 40 ô!'
   },
   {
-    index: 22,
+    index: 31,
     name: 'Rừng Nấm Đỏ Crimson',
     type: 'PROPERTY',
     icon: '🍄',
     colorGroup: 'NETHER',
     colorHex: '#ef4444',
-    price: 350,
-    upgradeCost: 180,
-    rents: [135, 290, 600, 1020],
-    description: 'Cụm Pháo Đài Nether (Nether) • Vùng đất rực lửa lợi nhuận cao.'
+    price: 300,
+    upgradeCost: 160,
+    rents: [140, 330, 680, 1120],
+    description: 'Khu rừng nấm rực lửa mang lại lợi nhuận khổng lồ.'
   },
   {
-    index: 23,
-    name: 'Pháo Đài Blaze',
+    index: 32,
+    name: 'Thành Cổ Đá Đen Bastion',
+    type: 'PROPERTY',
+    icon: '🐷',
+    colorGroup: 'NETHER',
+    colorHex: '#ef4444',
+    price: 320,
+    upgradeCost: 160,
+    rents: [150, 350, 720, 1180],
+    description: 'Kho vàng bí mật của tộc Piglin giữa lòng dung nham.'
+  },
+  {
+    index: 33,
+    name: 'Rương Kho Báu Cổ Đại',
+    type: 'CHEST',
+    icon: '🧰',
+    colorHex: '#f59e0b',
+    description: 'Khí Vận Minecraft • Mở rương báu vật tối thượng của thế giới ngầm!'
+  },
+  {
+    index: 34,
+    name: 'Pháo Đài Lửa Blaze',
     type: 'PROPERTY',
     icon: '🔥',
     colorGroup: 'NETHER',
     colorHex: '#ef4444',
-    price: 380,
-    upgradeCost: 180,
-    rents: [150, 320, 660, 1120],
-    description: 'Cụm Pháo Đài Nether (Nether) • Thành trì bất khả xâm phạm.'
+    price: 340,
+    upgradeCost: 160,
+    rents: [165, 380, 780, 1260],
+    description: 'Pháo đài đá Nether kiên cố canh giữ que lửa Blaze Rod.'
   },
   {
-    index: 24,
-    name: 'Ga Minecart Bắc',
+    index: 35,
+    name: 'Ga Minecart Đông',
     type: 'RAILROAD',
     icon: '🛤️',
-    colorHex: '#78716c',
+    colorHex: '#64748b',
     price: 160,
     rents: [50, 100, 200, 400],
-    description: 'Đường Sắt Minecart • Sở hữu 1/2/3/4 ga nhận 50/100/200/400 Vàng!'
+    description: 'Tuyến đường sắt xe mỏ phía Đông • Sở hữu 1/2/3/4 ga nhận $50/$100/$200/$400.'
   },
   {
-    index: 25,
-    name: 'Đảo Đá End',
+    index: 36,
+    name: 'Thuế Hoàng Gia',
+    type: 'ROYAL_TAX',
+    icon: '👑',
+    colorHex: '#eab308',
+    price: 150,
+    description: 'Nộp Thuế Hoàng Gia -$150 vào ngân khố Lâu Đài Trung Tâm!'
+  },
+  {
+    index: 37,
+    name: 'Quần Đảo Đá End',
     type: 'PROPERTY',
     icon: '🪐',
     colorGroup: 'END_CITY',
     colorHex: '#a855f7',
-    price: 420,
-    upgradeCost: 220,
-    rents: [170, 370, 760, 1280],
-    description: 'Cụm Thành Phố The End (End City) • Quần đảo lơ lửng ngoài không gian.'
+    price: 380,
+    upgradeCost: 200,
+    rents: [185, 420, 860, 1400],
+    description: 'Vùng đất lơ lửng ngoài không gian đầy hoa Chorus.'
   },
   {
-    index: 26,
-    name: 'Ô Thuế Hoàng Gia',
-    type: 'ROYAL_TAX',
-    icon: '👑',
-    colorHex: '#eab308',
-    description: 'Đóng Thuế Hoàng Gia 120 Vàng vào ngân khố đảo nổi!'
+    index: 38,
+    name: 'Chiến Hạm Bay Elytra',
+    type: 'PROPERTY',
+    icon: '🛸',
+    colorGroup: 'END_CITY',
+    colorHex: '#a855f7',
+    price: 410,
+    upgradeCost: 200,
+    rents: [200, 460, 940, 1520],
+    description: 'Con tàu bay huyền thoại cất giữ đôi cánh Elytra vô giá.'
   },
   {
-    index: 27,
-    name: 'Tháp Rồng Ender',
+    index: 39,
+    name: 'Tháp Rồng Ender Tối Thượng',
     type: 'PROPERTY',
     icon: '🐉',
     colorGroup: 'END_CITY',
     colorHex: '#a855f7',
-    price: 460,
-    upgradeCost: 220,
-    rents: [200, 430, 880, 1500],
-    description: 'Cụm Thành Phố The End (End City) • Ô đất đắt giá và quyền lực nhất bàn cờ!'
+    price: 450,
+    upgradeCost: 200,
+    rents: [230, 520, 1080, 1750],
+    description: 'Ô đất quyền lực và đắt giá nhất toàn bộ 40 ô trên bản đồ!'
   }
 ];
 
-export const BOARD_TILES: TileConfig[] = RAW_TILES.map((tile) => ({
+export const BOARD_TILES: TileConfig[] = RAW_TILES_40.map((tile) => ({
   ...tile,
-  ...getPerimeterGridCoords(tile.index)
+  ...getPerimeterGridCoords40(tile.index)
 }));
 
 export interface ChestCard {
@@ -450,50 +628,50 @@ export const CHEST_CARDS: ChestCard[] = [
   {
     id: 'diamond_vein',
     title: '💎 Đào Trúng Mỏ Kim Cương!',
-    description: 'Bạn vừa đập vỡ tầng đá sâu và nhặt được viên Kim Cương lấp lánh! Nhận +180 Vàng.',
+    description: 'Bạn vừa đập vỡ tầng đá sâu và nhặt được Kim Cương lấp lánh! Nhận +$180.',
     goldDelta: 180
   },
   {
     id: 'emerald_trade',
-    title: '💚 Giao Dịch Với Dân Làng!',
-    description: 'Dân làng Hmmm rất thích nông sản của bạn và thưởng +120 Vàng.',
+    title: '💚 Giao Dịch Ngọc Lục Bảo!',
+    description: 'Dân làng Hmmm rất thích nông sản của bạn và thưởng +$120.',
     goldDelta: 120
   },
   {
     id: 'golden_apple',
     title: '🍎 Nhặt Được Táo Vàng Enchant!',
-    description: 'Sức mạnh tràn đầy! Nhận +150 Vàng từ Rương Kho Báu.',
+    description: 'Sức mạnh tràn đầy! Nhận +$150 từ Rương Kho Báu.',
     goldDelta: 150
   },
   {
     id: 'creeper_roof',
     title: '💥 Creeper Nổ Hỏng Hàng Rào!',
-    description: 'Một chú Creeper đi lạc làm bay mất góc mái nhà. Tốn -70 Vàng sửa chữa.',
+    description: 'Một chú Creeper đi lạc làm bay mất góc mái nhà. Tốn -$70 sửa chữa.',
     goldDelta: -70
   },
   {
     id: 'elytra_start',
     title: '🪽 Lượn Cánh Elytra Về Ô Khởi Hành!',
-    description: 'Bay thẳng về Ô Khởi Hành (Ô 0) và nhận ngay +200 Vàng!',
+    description: 'Bay thẳng về Ô Khởi Hành (#0) và nhận ngay +$200!',
     moveToTile: 0,
     goldDelta: 200
   },
   {
     id: 'totem_undying',
     title: '🗿 Totem Bất Tử Ban Phước!',
-    description: 'Thần hộ mệnh trao tặng bạn +140 Vàng dự phòng.',
+    description: 'Thần hộ mệnh trao tặng bạn +$140 dự phòng.',
     goldDelta: 140
   },
   {
     id: 'zombie_siege',
     title: '🧟 Đêm Trăng Máu Zombie!',
-    description: 'Thuê Iron Golem bảo vệ ngôi làng tốn -60 Vàng.',
+    description: 'Thuê Iron Golem bảo vệ ngôi làng tốn -$60.',
     goldDelta: -60
   },
   {
     id: 'netherite_ingot',
     title: '🔥 Đúc Thành Công Phôi Netherite!',
-    description: 'Bán phôi Netherite quý hiếm thu về +200 Vàng!',
+    description: 'Bán phôi Netherite quý hiếm thu về +$200!',
     goldDelta: 200
   }
 ];

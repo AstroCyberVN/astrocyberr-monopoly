@@ -1,4 +1,5 @@
 import {
+  BOARD_SIZE,
   BOARD_TILES,
   CHARACTER_CONFIGS,
   CHEST_CARDS,
@@ -76,12 +77,12 @@ export class GameEngine {
   private winnerId: string | null = null;
   private logs: string[] = [];
 
-  constructor(mode: GameMode = 'SOLO_VS_AI', humanCount = 1, initialGold = 1200) {
+  constructor(mode: GameMode = 'SOLO_VS_AI', humanCount = 1, initialGold = 1500) {
     this.mode = mode;
     this.initGame(mode, humanCount, initialGold);
   }
 
-  public initGame(mode: GameMode, humanCount = 1, initialGold = 1200): void {
+  public initGame(mode: GameMode, humanCount = 1, initialGold = 1500): void {
     this.mode = mode;
     this.round = 1;
     this.currentPlayerIndex = 0;
@@ -96,7 +97,7 @@ export class GameEngine {
       const isBot = idx >= effectiveHumans;
       return {
         id: `p${idx + 1}`,
-        name: isBot ? `${cfg.name} (Bot AI)` : cfg.name,
+        name: isBot ? `${cfg.name} (AI)` : cfg.name,
         characterId: cfg.id,
         locomotion: cfg.locomotion,
         color: cfg.primaryColor,
@@ -116,7 +117,7 @@ export class GameEngine {
       festivalMultiplier: 1
     }));
 
-    this.addLog(`🎮 Bắt đầu ván mới (${mode}) trên Đảo Nổi 28 Ô! Mỗi người nhận ${initialGold} Vàng.`);
+    this.addLog(`🎮 Bắt đầu ván mới (${mode}) trên Bản Đồ 40 Ô! Mỗi người nhận $${initialGold}.`);
   }
 
   public getMode(): GameMode {
@@ -148,11 +149,11 @@ export class GameEngine {
   }
 
   public getTileConfig(index: number): TileConfig {
-    return BOARD_TILES[((index % 28) + 28) % 28];
+    return BOARD_TILES[((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
   }
 
   public getTileState(index: number): TileState {
-    return this.tiles[((index % 28) + 28) % 28];
+    return this.tiles[((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
   }
 
   public getAllTileStates(): TileState[] {
@@ -170,7 +171,7 @@ export class GameEngine {
 
   public addLog(entry: string): void {
     this.logs.unshift(entry);
-    if (this.logs.length > 40) {
+    if (this.logs.length > 50) {
       this.logs.pop();
     }
   }
@@ -180,13 +181,13 @@ export class GameEngine {
     const d2 = forced ? forced[1] : Math.floor(Math.random() * 6) + 1;
     this.lastDice = [d1, d2];
     const p = this.getCurrentPlayer();
-    this.addLog(`🎲 ${p.emoji} ${p.name} tung xúc xắc được ${d1} + ${d2} = ${d1 + d2} bước!`);
+    this.addLog(`🎲 ${p.emoji} ${p.name} tung xúc xắc: ${d1} + ${d2} = ${d1 + d2} bước!`);
     return { d1, d2, total: d1 + d2 };
   }
 
   /**
-   * Advances a player by 1 tile around the 28-tile island perimeter.
-   * Awards +200 Gold immediately whenever the player steps onto Tile 0 (Start).
+   * Advances a player by 1 tile around the 40-tile island perimeter.
+   * Awards +$200 immediately whenever the player steps onto Tile 0 (Start).
    */
   public stepPlayerOneTile(playerId: string): {
     oldPosition: number;
@@ -195,39 +196,36 @@ export class GameEngine {
   } {
     const player = this.getPlayerById(playerId);
     const oldPosition = player.position;
-    const newPosition = (oldPosition + 1) % 28;
+    const newPosition = (oldPosition + 1) % BOARD_SIZE;
     player.position = newPosition;
 
     const passedStart = newPosition === 0;
     if (passedStart) {
       player.gold += 200;
-      this.addLog(`🚩 ${player.emoji} ${player.name} đi qua Ô Khởi Hành và nhận +200 Vàng!`);
+      this.addLog(`🚩 ${player.emoji} ${player.name} đi qua Ô Khởi Hành và nhận +$200!`);
     }
 
     return { oldPosition, newPosition, passedStart };
   }
 
-  /**
-   * Checks if an owner owns all properties of a given color group (Monopoly Set)
-   */
   public ownsFullColorGroup(ownerId: string, colorGroup?: ColorGroupId): boolean {
     if (!colorGroup) return false;
     const groupTiles = BOARD_TILES.filter((t) => t.type === 'PROPERTY' && t.colorGroup === colorGroup);
     return groupTiles.length > 0 && groupTiles.every((t) => this.tiles[t.index].ownerId === ownerId);
   }
 
-  /**
-   * Counts how many Minecart Railroads a player owns (1..4)
-   */
   public countOwnedRailroads(ownerId: string): number {
     return BOARD_TILES.filter(
       (t) => t.type === 'RAILROAD' && this.tiles[t.index].ownerId === ownerId
     ).length;
   }
 
-  /**
-   * Calculates current rent of a tile including building level, Monopoly set 1.5x bonus, and Festival 2x multiplier
-   */
+  public countOwnedUtilities(ownerId: string): number {
+    return BOARD_TILES.filter(
+      (t) => t.type === 'UTILITY' && this.tiles[t.index].ownerId === ownerId
+    ).length;
+  }
+
   public calculateRent(tileIndex: number): number {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
@@ -235,6 +233,11 @@ export class GameEngine {
 
     if (cfg.type === 'RAILROAD') {
       const count = Math.max(1, Math.min(4, this.countOwnedRailroads(state.ownerId)));
+      return cfg.rents[count - 1] * state.festivalMultiplier;
+    }
+
+    if (cfg.type === 'UTILITY') {
+      const count = Math.max(1, Math.min(2, this.countOwnedUtilities(state.ownerId)));
       return cfg.rents[count - 1] * state.festivalMultiplier;
     }
 
@@ -249,9 +252,6 @@ export class GameEngine {
     return rent;
   }
 
-  /**
-   * Buys an unowned PROPERTY or RAILROAD tile (sets level = 1: Wooden Fence)
-   */
   public buyProperty(playerId: string, tileIndex = this.getPlayerById(playerId).position): {
     ok: boolean;
     reason?: string;
@@ -260,29 +260,26 @@ export class GameEngine {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
 
-    if (cfg.type !== 'PROPERTY' && cfg.type !== 'RAILROAD') {
-      return { ok: false, reason: 'Ô này không phải là đất hoặc ga tàu để mua.' };
+    if (cfg.type !== 'PROPERTY' && cfg.type !== 'RAILROAD' && cfg.type !== 'UTILITY') {
+      return { ok: false, reason: 'Ô này không phải là tài sản có thể mua.' };
     }
     if (state.ownerId !== null) {
-      return { ok: false, reason: 'Ô đất này đã có chủ sở hữu.' };
+      return { ok: false, reason: 'Ô này đã có chủ sở hữu.' };
     }
     const price = cfg.price ?? 100;
     if (player.gold < price) {
-      return { ok: false, reason: 'Không đủ Vàng để mua ô đất này.' };
+      return { ok: false, reason: 'Không đủ $ để mua ô này.' };
     }
 
     player.gold -= price;
     state.ownerId = player.id;
-    state.level = 1; // Level 1: Cọc Rào Gỗ
+    state.level = 1;
     this.addLog(
-      `🏠 ${player.emoji} ${player.name} đã mua [${cfg.name}] với giá ${price} Vàng (Mọc Cọc Rào Gỗ)!`
+      `🏠 ${player.emoji} ${player.name} đã mua [${cfg.name}] với giá $${price}!`
     );
     return { ok: true };
   }
 
-  /**
-   * Upgrades an owned PROPERTY tile up to Level 4 (1: Fence -> 2: Cottage -> 3: Villa -> 4: Castle)
-   */
   public upgradeProperty(
     playerId: string,
     tileIndex = this.getPlayerById(playerId).position
@@ -303,7 +300,7 @@ export class GameEngine {
 
     const cost = cfg.upgradeCost ?? 80;
     if (player.gold < cost) {
-      return { ok: false, newLevel: state.level, reason: 'Không đủ Vàng để nâng cấp công trình.' };
+      return { ok: false, newLevel: state.level, reason: 'Không đủ $ để nâng cấp công trình.' };
     }
 
     player.gold -= cost;
@@ -316,14 +313,11 @@ export class GameEngine {
           : 'Lâu Đài Vương Miện';
 
     this.addLog(
-      `⬆️ ${player.emoji} ${player.name} nâng cấp [${cfg.name}] lên Cấp ${state.level} (${tierLabel}) (-${cost} Vàng)!`
+      `⬆️ ${player.emoji} ${player.name} nâng cấp [${cfg.name}] lên Cấp ${state.level} (${tierLabel}) (-$${cost})!`
     );
     return { ok: true, newLevel: state.level };
   }
 
-  /**
-   * Applies Festival 2x Rent Multiplier to an owned property
-   */
   public applyFestivalBoost(playerId: string, tileIndex: number): { ok: boolean } {
     const state = this.getTileState(tileIndex);
     const cfg = this.getTileConfig(tileIndex);
@@ -338,26 +332,21 @@ export class GameEngine {
     return { ok: true };
   }
 
-  /**
-   * Teleports player from The End Portal (Tile 21) to any chosen target tile on the board.
-   * Awards +200 Gold if the forward path passes or lands on Tile 0 (Start).
-   */
   public teleportFromEndPortal(
     playerId: string,
     targetTileIndex: number
   ): { ok: boolean; passedStart: boolean } {
     const player = this.getPlayerById(playerId);
-    const target = ((targetTileIndex % 28) + 28) % 28;
+    const target = ((targetTileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
     const oldPos = player.position;
 
-    // Moving forward from oldPos (e.g. 21) to target wraps past 0 if target < oldPos
     const passedStart = target !== oldPos && (target === 0 || target < oldPos);
     player.position = target;
 
     if (passedStart) {
       player.gold += 200;
       this.addLog(
-        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}] (Qua Khởi Hành +200 Vàng)!`
+        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}] (Qua Khởi Hành +$200)!`
       );
     } else {
       this.addLog(
@@ -368,9 +357,6 @@ export class GameEngine {
     return { ok: true, passedStart };
   }
 
-  /**
-   * Resolves what happens when a player lands on their current tile
-   */
   public resolveTileLanding(playerId: string): TileResolutionResult {
     const player = this.getPlayerById(playerId);
     const tileIndex = player.position;
@@ -383,11 +369,12 @@ export class GameEngine {
           action: 'START_LANDED',
           tileIndex,
           tileName: cfg.name,
-          message: `${player.name} dừng ngay tại Ô Khởi Hành! Không khí lễ hội tràn ngập đảo nổi.`
+          message: `${player.name} dừng ngay tại Ô Khởi Hành! Nhận năng lượng thịnh vượng trên đảo nổi.`
         };
 
       case 'PROPERTY':
-      case 'RAILROAD': {
+      case 'RAILROAD':
+      case 'UTILITY': {
         if (state.ownerId === null) {
           const price = cfg.price ?? 100;
           if (player.gold >= price) {
@@ -396,7 +383,7 @@ export class GameEngine {
               tileIndex,
               tileName: cfg.name,
               amount: price,
-              message: `[${cfg.name}] đang còn trống! Mua ngay với giá ${price} Vàng?`
+              message: `[${cfg.name}] đang còn trống! Mua ngay với giá $${price}?`
             };
           }
           return {
@@ -404,7 +391,7 @@ export class GameEngine {
             tileIndex,
             tileName: cfg.name,
             amount: price,
-            message: `[${cfg.name}] có giá ${price} Vàng nhưng bạn chỉ còn ${player.gold} Vàng.`
+            message: `[${cfg.name}] có giá $${price} nhưng bạn chỉ còn $${player.gold}.`
           };
         }
 
@@ -417,7 +404,7 @@ export class GameEngine {
                 tileIndex,
                 tileName: cfg.name,
                 amount: upCost,
-                message: `Chào mừng về nhà! Nâng cấp [${cfg.name}] lên Cấp ${state.level + 1} với ${upCost} Vàng?`
+                message: `Chào mừng về lãnh địa! Nâng cấp [${cfg.name}] lên Cấp ${state.level + 1} với $${upCost}?`
               };
             }
           }
@@ -429,13 +416,12 @@ export class GameEngine {
           };
         }
 
-        // Owned by another player -> Pay Rent automatically
         const owner = this.getPlayerById(state.ownerId);
         const rent = this.calculateRent(tileIndex);
         player.gold -= rent;
         owner.gold += rent;
         this.addLog(
-          `💸 ${player.emoji} ${player.name} trả ${rent} Vàng tiền thuê tại [${cfg.name}] cho ${owner.emoji} ${owner.name}!`
+          `💸 ${player.emoji} ${player.name} trả $${rent} tiền thuê tại [${cfg.name}] cho ${owner.emoji} ${owner.name}!`
         );
         this.checkBankruptcy(player, owner.id);
         return {
@@ -445,7 +431,7 @@ export class GameEngine {
           amount: rent,
           ownerId: owner.id,
           ownerName: owner.name,
-          message: `Đã trả ${rent} Vàng tiền thuê đất cho ${owner.name}!`
+          message: `Đã trả $${rent} tiền thuê đất cho ${owner.name}!`
         };
       }
 
@@ -489,7 +475,7 @@ export class GameEngine {
           message:
             ownedTiles.length > 0
               ? `🎉 Đại Tiệc Lễ Hội! Chọn 1 ô đất của bạn để NHÂN ĐÔI (x2) tiền thuê!`
-              : `🎉 Đại Tiệc Lễ Hội! Bạn được nhận +80 Vàng tiền thưởng lễ hội!`,
+              : `🎉 Đại Tiệc Lễ Hội! Bạn được nhận +$80 tiền thưởng lễ hội!`,
           amount: ownedTiles.length === 0 ? 80 : undefined
         };
       }
@@ -499,21 +485,21 @@ export class GameEngine {
           action: 'CHOOSE_PORTAL_TARGET',
           tileIndex,
           tileName: cfg.name,
-          message: `🌌 Cổng Dịch Chuyển The End đã mở! Hãy chọn bất kỳ ô nào trên bàn cờ để bay tới!`
+          message: `🌌 Cổng Dịch Chuyển The End đã mở! Hãy chọn bất kỳ ô nào trên 40 ô để bay tới!`
         };
       }
 
       case 'ROYAL_TAX': {
-        const tax = 120;
+        const tax = cfg.price ?? 120;
         player.gold -= tax;
-        this.addLog(`👑 ${player.emoji} ${player.name} nộp Thuế Hoàng Gia -${tax} Vàng.`);
+        this.addLog(`👑 ${player.emoji} ${player.name} nộp ${cfg.name} -$${tax}.`);
         this.checkBankruptcy(player, null);
         return {
           action: 'PAID_ROYAL_TAX',
           tileIndex,
           tileName: cfg.name,
           amount: tax,
-          message: `Bạn đã nộp ${tax} Vàng vào Ngân Khố Hoàng Gia!`
+          message: `Bạn đã nộp $${tax} vào Ngân Khố Đảo Nổi!`
         };
       }
     }
@@ -547,9 +533,6 @@ export class GameEngine {
     }
   }
 
-  /**
-   * Advances to the next active player's turn. Automatically consumes skipTurns on Deserted Island.
-   */
   public nextTurn(): { activePlayer: PlayerState; skippedPlayer?: PlayerState } {
     const total = this.players.length;
     let skippedPlayer: PlayerState | undefined;
