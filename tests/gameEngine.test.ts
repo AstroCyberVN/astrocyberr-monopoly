@@ -3,24 +3,21 @@ import { BOARD_TILES, BOARD_SIZE, CHARACTER_CONFIGS } from '../src/core/boardDat
 import { GameEngine } from '../src/core/gameEngine';
 import { chooseBotAction } from '../src/core/botAI';
 
-describe('AstroCyberr Monopoly v2.0 — 40-Tile Floating Island & Game Engine', () => {
+describe('AstroCyberr Monopoly v3.0 — 40-Tile Board, Doubles Bonus & Emergency Liquidation', () => {
   it('defines exactly 40 perimeter tiles with outward-facing rotation angles per side', () => {
     expect(BOARD_SIZE).toBe(40);
     expect(BOARD_TILES).toHaveLength(40);
 
-    // Corners at 0, 10, 20, 30
     expect(BOARD_TILES[0].type).toBe('START');
     expect(BOARD_TILES[10].type).toBe('DESERTED_ISLAND');
     expect(BOARD_TILES[20].type).toBe('FESTIVAL');
     expect(BOARD_TILES[30].type).toBe('END_PORTAL');
 
-    // Outward rotation check for each side so text faces the outside reader
-    expect(BOARD_TILES[5].outwardRotationY).toBeCloseTo(0); // Bottom row faces +Z
-    expect(BOARD_TILES[15].outwardRotationY).toBeCloseTo(-Math.PI / 2); // Left row faces -X
-    expect(BOARD_TILES[25].outwardRotationY).toBeCloseTo(Math.PI); // Top row faces -Z
-    expect(BOARD_TILES[35].outwardRotationY).toBeCloseTo(Math.PI / 2); // Right row faces +X
+    expect(BOARD_TILES[5].outwardRotationY).toBeCloseTo(0);
+    expect(BOARD_TILES[15].outwardRotationY).toBeCloseTo(-Math.PI / 2);
+    expect(BOARD_TILES[25].outwardRotationY).toBeCloseTo(Math.PI);
+    expect(BOARD_TILES[35].outwardRotationY).toBeCloseTo(Math.PI / 2);
 
-    // 8 color groups across 24 property tiles
     const properties = BOARD_TILES.filter((t) => t.type === 'PROPERTY');
     expect(properties.length).toBe(24);
     const colorGroups = new Set(properties.map((t) => t.colorGroup));
@@ -52,29 +49,39 @@ describe('AstroCyberr Monopoly v2.0 — 40-Tile Floating Island & Game Engine', 
     expect(p0.gold).toBe(initialGold + 200);
   });
 
-  it('supports buying a property (Level 1 Wooden Fence) and upgrading up to Level 4 (Crown Castle)', () => {
+  it('detects Doubles roll (d1 === d2) and grants extra turn bonus', () => {
     const engine = new GameEngine('SOLO_VS_AI', 1);
-    const p0 = engine.getCurrentPlayer();
-    p0.gold = 2000;
-    p0.position = 1;
+    const rollDouble = engine.rollDice([4, 4]);
+    expect(rollDouble.isDoubles).toBe(true);
+    expect(rollDouble.total).toBe(8);
 
-    const buyRes = engine.buyProperty(p0.id, 1);
-    expect(buyRes.ok).toBe(true);
-    expect(engine.getTileState(1).ownerId).toBe(p0.id);
-    expect(engine.getTileState(1).level).toBe(1);
-
-    expect(engine.upgradeProperty(p0.id, 1).newLevel).toBe(2);
-    expect(engine.upgradeProperty(p0.id, 1).newLevel).toBe(3);
-    expect(engine.upgradeProperty(p0.id, 1).newLevel).toBe(4);
-    expect(engine.upgradeProperty(p0.id, 1).ok).toBe(false);
+    const rollNormal = engine.rollDice([3, 5]);
+    expect(rollNormal.isDoubles).toBe(false);
+    expect(rollNormal.total).toBe(8);
   });
 
-  it('calculates rent with Monopoly Color Set bonus (1.5x) and Festival multiplier (2x)', () => {
+  it('auto-liquidates owned properties at 75% value to save a player from bankruptcy', () => {
+    const engine = new GameEngine('PASS_AND_PLAY', 2);
+    const [p0] = engine.getPlayers();
+    p0.gold = 500;
+    // Buy Tile 39 (price $450 -> 75% resale value = $338)
+    engine.buyProperty(p0.id, 39);
+    expect(p0.gold).toBe(50);
+
+    // Land on Royal Tax #36 (-$150) -> gold drops to -$100 -> triggers auto-liquidation of Tile 39
+    p0.position = 36;
+    engine.resolveTileLanding(p0.id);
+
+    expect(p0.bankrupt).toBe(false);
+    expect(p0.gold).toBeGreaterThan(0);
+    expect(engine.getTileState(39).ownerId).toBeNull();
+  });
+
+  it('supports buying a property, upgrading to Level 4, and calculating Monopoly set + Festival rent', () => {
     const engine = new GameEngine('PASS_AND_PLAY', 2);
     const [p0, p1] = engine.getPlayers();
     p0.gold = 3000;
 
-    // PLAINS group: tiles 1, 3, 4
     engine.buyProperty(p0.id, 1);
     const singleRent = engine.calculateRent(1);
 
@@ -116,7 +123,7 @@ describe('AstroCyberr Monopoly v2.0 — 40-Tile Floating Island & Game Engine', 
     const engine = new GameEngine('SOLO_VS_AI', 1);
     const bot = engine.getPlayers()[1];
     bot.gold = 900;
-    bot.position = 6; // Oak Forest property
+    bot.position = 6;
 
     const decision = chooseBotAction(engine, bot.id);
     expect(decision.type).toBe('BUY_PROPERTY');

@@ -20,7 +20,7 @@ import { RoomSync } from './net/RoomSync';
 
 /**
  * Draws a cute 3D Isometric Voxel Grass Block with the Chibi character standing on top of it
- * for the compact rectangular player cards (Requirement #5)!
+ * for the compact rectangular player cards!
  */
 function drawCharacterOnGrassBlockAvatar(canvas: HTMLCanvasElement, charId: CharacterId): void {
   const ctx = canvas.getContext('2d');
@@ -30,7 +30,6 @@ function drawCharacterOnGrassBlockAvatar(canvas: HTMLCanvasElement, charId: Char
   const cx = canvas.width / 2;
 
   // 1. Draw Isometric 3D Minecraft Grass Block at bottom (y: 44..78)
-  // Top grass diamond
   ctx.fillStyle = '#4ade80';
   ctx.beginPath();
   ctx.moveTo(cx, 44);
@@ -40,7 +39,6 @@ function drawCharacterOnGrassBlockAvatar(canvas: HTMLCanvasElement, charId: Char
   ctx.closePath();
   ctx.fill();
 
-  // Left dirt/grass face
   ctx.fillStyle = '#854d0e';
   ctx.beginPath();
   ctx.moveTo(cx - 26, 55);
@@ -50,7 +48,6 @@ function drawCharacterOnGrassBlockAvatar(canvas: HTMLCanvasElement, charId: Char
   ctx.closePath();
   ctx.fill();
 
-  // Left green grass overhang trim
   ctx.fillStyle = '#22c55e';
   ctx.beginPath();
   ctx.moveTo(cx - 26, 55);
@@ -60,7 +57,6 @@ function drawCharacterOnGrassBlockAvatar(canvas: HTMLCanvasElement, charId: Char
   ctx.closePath();
   ctx.fill();
 
-  // Right dirt/grass face (slightly darker for 3D shading)
   ctx.fillStyle = '#713f12';
   ctx.beginPath();
   ctx.moveTo(cx + 26, 55);
@@ -89,24 +85,19 @@ function drawCharacterOnGrassBlockAvatar(canvas: HTMLCanvasElement, charId: Char
           ? { head: '#4ade80', hair: '#22c55e', body: '#22c55e', legs: '#15803d', eyes: '#090d16' }
           : { head: '#18181b', hair: '#09090b', body: '#18181b', legs: '#09090b', eyes: '#d8b4fe' };
 
-  // Legs
   ctx.fillStyle = palette.legs;
   ctx.fillRect(cx - 8, 44, 7, 10);
   ctx.fillRect(cx + 1, 44, 7, 10);
 
-  // Body
   ctx.fillStyle = palette.body;
   ctx.fillRect(cx - 10, 31, 20, 14);
 
-  // Chibi 1.2x Big Square Head
   ctx.fillStyle = palette.head;
   ctx.fillRect(cx - 14, 7, 28, 25);
 
-  // Hair / Top detail
   ctx.fillStyle = palette.hair;
   ctx.fillRect(cx - 14, 7, 28, 7);
 
-  // Eyes / Creeper Face
   ctx.fillStyle = palette.eyes;
   if (charId === 'creeper') {
     ctx.fillRect(cx - 9, 15, 5, 5);
@@ -136,6 +127,12 @@ class AstroCyberrMonopolyApp {
   private isBusy = false;
   private selectedSetupMode: GameMode = 'SOLO_VS_AI';
   private selectedHumanCount = 2;
+  private gameSpeedMultiplier = 1;
+
+  // Spacebar / Pointer Hold Power Charge Bar State
+  private isChargingRoll = false;
+  private rollChargeRatio = 0;
+  private rollChargeTimer: number | null = null;
 
   constructor() {
     this.initThreeScene();
@@ -149,7 +146,8 @@ class AstroCyberrMonopolyApp {
     const container = document.getElementById('canvas-container')!;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#7dd3fc');
-    this.scene.fog = new THREE.FogExp2('#7dd3fc', 0.0085);
+    // Lighter fog so the 4 surrounding voxel walls at distance ±66 remain clearly visible
+    this.scene.fog = new THREE.FogExp2('#7dd3fc', 0.0042);
 
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -177,8 +175,8 @@ class AstroCyberrMonopolyApp {
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 2;
-    sunLight.shadow.camera.far = 90;
-    const d = 22;
+    sunLight.shadow.camera.far = 110;
+    const d = 24;
     sunLight.shadow.camera.left = -d;
     sunLight.shadow.camera.right = d;
     sunLight.shadow.camera.top = d;
@@ -199,8 +197,8 @@ class AstroCyberrMonopolyApp {
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Requirement #7: Click any tile on the 3D board -> show non-intrusive popup at bottom-left!
-    this.renderer.domElement.addEventListener('click', (ev) => {
+    // Click any tile -> Camera smoothly flies to the tile FIRST, then opens the Tile Info Popup!
+    this.renderer.domElement.addEventListener('click', async (ev) => {
       if (this.cameraDirector.wasDragging()) return;
       const rect = this.renderer.domElement.getBoundingClientRect();
       this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
@@ -208,11 +206,27 @@ class AstroCyberrMonopolyApp {
       this.raycaster.setFromCamera(this.pointer, this.cameraDirector.camera);
 
       const hits = this.raycaster.intersectObjects(this.islandBoard.root.children, true);
+      let clickedTileIdx: number | null = null;
       for (const hit of hits) {
         const idx = hit.object.userData?.tileIndex ?? hit.object.parent?.userData?.tileIndex;
         if (typeof idx === 'number') {
-          this.showBottomLeftTilePopup(idx);
+          clickedTileIdx = idx;
           break;
+        }
+      }
+
+      if (clickedTileIdx !== null) {
+        document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
+        this.islandBoard.highlightTile(clickedTileIdx);
+        const tileCfg = this.engine.getTileConfig(clickedTileIdx);
+        await this.cameraDirector.flyToTile(tileCfg, this.gameSpeedMultiplier);
+        this.showBottomLeftTilePopup(clickedTileIdx);
+      } else {
+        // Clicked on water/background outside tiles -> close popup and glide back to panoramic if in NORMAL mode
+        document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
+        this.islandBoard.highlightTile(null);
+        if (this.cameraDirector.getCameraStyle() === 'NORMAL') {
+          this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
         }
       }
     });
@@ -220,20 +234,101 @@ class AstroCyberrMonopolyApp {
 
   private bindUIEvents(): void {
     const btnRoll = document.getElementById('btn-roll-dice') as HTMLButtonElement;
+    const btnCamNormal = document.getElementById('btn-cam-normal')!;
+    const btnCamLive = document.getElementById('btn-cam-live')!;
+    const btnCamReset = document.getElementById('btn-cam-reset')!;
     const btnGear = document.getElementById('btn-settings-gear')!;
     const settingsPopover = document.getElementById('settings-popover')!;
     const btnSfx = document.getElementById('btn-sfx-toggle')!;
     const btnBgm = document.getElementById('btn-bgm-toggle')!;
+    const sliderVolume = document.getElementById('slider-master-volume') as HTMLInputElement;
+    const btnSpeed1x = document.getElementById('btn-speed-1x')!;
+    const btnSpeed2x = document.getElementById('btn-speed-2x')!;
     const btnModeSelect = document.getElementById('btn-mode-select')!;
     const btnBlockbench = document.getElementById('btn-blockbench-info')!;
 
-    btnRoll.addEventListener('click', () => {
-      if (!this.isBusy) {
-        this.executeCurrentPlayerTurn();
+    // Camera Mode Switcher: Normal vs Live
+    btnCamNormal.addEventListener('click', () => {
+      btnCamNormal.classList.add('active');
+      btnCamLive.classList.remove('active');
+      this.cameraDirector.setCameraStyle('NORMAL');
+    });
+
+    btnCamLive.addEventListener('click', () => {
+      btnCamLive.classList.add('active');
+      btnCamNormal.classList.remove('active');
+      this.cameraDirector.setCameraStyle('LIVE');
+      this.focusCurrentPlayerInLiveMode();
+    });
+
+    btnCamReset.addEventListener('click', () => {
+      document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
+      this.islandBoard.highlightTile(null);
+      if (this.cameraDirector.getCameraStyle() !== 'NORMAL') {
+        btnCamNormal.classList.add('active');
+        btnCamLive.classList.remove('active');
+        this.cameraDirector.setCameraStyle('NORMAL');
+      } else {
+        this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
       }
     });
 
-    // Requirement #4: Gear icon toggles settings popover
+    // Spacebar & Pointer Hold Power Charge Bar for Rolling Dice!
+    const startPowerCharge = () => {
+      const active = this.engine.getCurrentPlayer();
+      if (this.isBusy || active.isBot || this.isChargingRoll || this.engine.getWinner()) return;
+      this.isChargingRoll = true;
+      this.rollChargeRatio = 0.08;
+      btnRoll.classList.add('charging');
+      this.updatePowerBarUI(this.rollChargeRatio);
+
+      this.rollChargeTimer = window.setInterval(() => {
+        this.rollChargeRatio = Math.min(1.0, this.rollChargeRatio + 0.06);
+        this.updatePowerBarUI(this.rollChargeRatio);
+        soundManager.playPowerChargeTick(this.rollChargeRatio);
+      }, 45);
+    };
+
+    const releasePowerChargeAndRoll = () => {
+      if (!this.isChargingRoll) return;
+      this.isChargingRoll = false;
+      btnRoll.classList.remove('charging');
+      if (this.rollChargeTimer !== null) {
+        clearInterval(this.rollChargeTimer);
+        this.rollChargeTimer = null;
+      }
+      const pwr = 1.0 + this.rollChargeRatio * 1.15;
+      this.updatePowerBarUI(0);
+      this.executeCurrentPlayerTurn(pwr);
+    };
+
+    btnRoll.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      startPowerCharge();
+    });
+    window.addEventListener('pointerup', () => {
+      if (this.isChargingRoll) {
+        releasePowerChargeAndRoll();
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !e.repeat) {
+        if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+        e.preventDefault();
+        startPowerCharge();
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        if (this.isChargingRoll) {
+          e.preventDefault();
+          releasePowerChargeAndRoll();
+        }
+      }
+    });
+
+    // Gear icon toggles settings popover
     btnGear.addEventListener('click', (e) => {
       e.stopPropagation();
       settingsPopover.classList.toggle('hidden');
@@ -248,23 +343,49 @@ class AstroCyberrMonopolyApp {
     btnSfx.addEventListener('click', () => {
       const on = soundManager.toggleSfx();
       const label = document.getElementById('sfx-status-label')!;
-      label.textContent = on ? 'BẬT' : 'TẮT';
+      const sw = document.getElementById('sfx-switch-ui')!;
+      label.textContent = on ? 'Đang bật' : 'Đang tắt';
       label.className = on ? 'emerald-text' : 'muted-text';
+      sw.classList.toggle('on', on);
     });
 
     btnBgm.addEventListener('click', () => {
       const on = soundManager.toggleBgm();
       const label = document.getElementById('bgm-status-label')!;
-      label.textContent = on ? 'BẬT' : 'TẮT';
+      const sw = document.getElementById('bgm-switch-ui')!;
+      label.textContent = on ? 'Đang bật' : 'Đang tắt';
       label.className = on ? 'emerald-text' : 'muted-text';
+      sw.classList.toggle('on', on);
     });
 
-    // Requirement #7: Close bottom-left tile popup
+    sliderVolume.addEventListener('input', () => {
+      const pct = Number(sliderVolume.value);
+      soundManager.setMasterVolume(pct / 100);
+      document.getElementById('volume-pct-label')!.textContent = `${pct}%`;
+    });
+
+    btnSpeed1x.addEventListener('click', () => {
+      this.gameSpeedMultiplier = 1;
+      btnSpeed1x.classList.add('active');
+      btnSpeed2x.classList.remove('active');
+    });
+
+    btnSpeed2x.addEventListener('click', () => {
+      this.gameSpeedMultiplier = 2;
+      btnSpeed2x.classList.add('active');
+      btnSpeed1x.classList.remove('active');
+    });
+
+    // Close bottom-left tile popup -> also glide back to panoramic if in NORMAL mode
     document.getElementById('btn-close-tile-popup')!.addEventListener('click', () => {
       document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
+      this.islandBoard.highlightTile(null);
+      if (this.cameraDirector.getCameraStyle() === 'NORMAL') {
+        this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
+      }
     });
 
-    // Requirement #8: Collapsible right event log drawer
+    // Collapsible right event log drawer (Default CLOSED / collapsed on page load!)
     const logDrawer = document.getElementById('event-log-drawer')!;
     const logArrowIcon = document.getElementById('log-drawer-arrow-icon')!;
     document.getElementById('btn-toggle-log-drawer')!.addEventListener('click', () => {
@@ -324,6 +445,26 @@ class AstroCyberrMonopolyApp {
     });
   }
 
+  private updatePowerBarUI(ratio: number): void {
+    const pct = Math.round(ratio * 100);
+    const fill = document.getElementById('roll-power-fill');
+    const label = document.getElementById('roll-power-pct');
+    if (fill) fill.style.width = `${pct}%`;
+    if (label) label.textContent = `${pct}%`;
+  }
+
+  private focusCurrentPlayerInLiveMode(): Promise<void> {
+    const active = this.engine.getCurrentPlayer();
+    const activeIdx = this.engine.getCurrentPlayerIndex();
+    const standPos = this.islandBoard.getTileStandPosition(active.position, activeIdx);
+    const tileCfg = this.engine.getTileConfig(active.position);
+    return this.cameraDirector.focusActivePlayerLive(
+      standPos,
+      tileCfg.outwardRotationY,
+      this.gameSpeedMultiplier
+    );
+  }
+
   private connectOnlineRoom(roomCode: string): void {
     this.roomSync.connect(roomCode, (remoteState) => {
       this.engine.hydrate(remoteState);
@@ -337,11 +478,13 @@ class AstroCyberrMonopolyApp {
     this.isBusy = false;
     this.hideActionModal();
     this.dice3D.clearFusionFX();
+    this.islandBoard.hideTargetTileBeacon();
     const humans = mode === 'SOLO_VS_AI' ? 1 : mode === 'ONLINE_ROOM' ? 4 : humanCount;
     this.engine.initGame(mode, humans, 1500);
     this.islandBoard.clearAllBuildings();
     this.syncAllCharactersToBoard();
     this.renderHUD();
+    this.focusCurrentPlayerInLiveMode();
 
     if (mode === 'ONLINE_ROOM') {
       this.roomSync.broadcastState(this.engine.serialize());
@@ -370,20 +513,22 @@ class AstroCyberrMonopolyApp {
     }
   }
 
-  /**
-   * Requirement #10c:
-   * Shows the fused dice total and waits 3 seconds (or until the player clicks Confirm)
-   * before starting character movement, keeping game pacing smooth and unhurried.
-   */
-  private waitForDiceFusionConfirmation(d1: number, d2: number, total: number): Promise<void> {
+  private waitForDiceFusionConfirmation(
+    d1: number,
+    d2: number,
+    total: number,
+    isDoubles: boolean
+  ): Promise<void> {
     return new Promise((resolve) => {
       const bar = document.getElementById('dice-fusion-confirm-bar')!;
       const btnConfirm = document.getElementById('btn-confirm-move-now')!;
       const secSpan = document.getElementById('fusion-countdown-sec')!;
+      const doublesTag = document.getElementById('fusion-doubles-tag')!;
 
       document.getElementById('fusion-d1')!.textContent = `${d1}`;
       document.getElementById('fusion-d2')!.textContent = `${d2}`;
       document.getElementById('fusion-total')!.textContent = `${total} BƯỚC`;
+      doublesTag.classList.toggle('hidden', !isDoubles);
 
       let remaining = 3;
       secSpan.textContent = `${remaining}`;
@@ -402,6 +547,7 @@ class AstroCyberrMonopolyApp {
 
       btnConfirm.addEventListener('click', finish);
 
+      const stepMs = Math.round(1000 / Math.max(1, this.gameSpeedMultiplier));
       const timer = window.setInterval(() => {
         remaining -= 1;
         if (remaining <= 0) {
@@ -409,11 +555,11 @@ class AstroCyberrMonopolyApp {
         } else {
           secSpan.textContent = `${remaining}`;
         }
-      }, 1000);
+      }, stepMs);
     });
   }
 
-  private async executeCurrentPlayerTurn(): Promise<void> {
+  private async executeCurrentPlayerTurn(throwPower = 1.0): Promise<void> {
     if (this.isBusy || this.engine.getWinner()) return;
     this.isBusy = true;
 
@@ -422,22 +568,37 @@ class AstroCyberrMonopolyApp {
     const btnRoll = document.getElementById('btn-roll-dice') as HTMLButtonElement;
     btnRoll.disabled = true;
 
-    // 1. Roll 3D Dice -> Glow Pips -> Fly Up -> Fuse into Total!
-    const { d1, d2, total } = this.engine.rollDice();
-    await this.dice3D.animateRollAndFuseTotal(d1, d2);
+    // Close any open tile popup before rolling
+    document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
+    this.islandBoard.highlightTile(null);
 
-    document.getElementById('dice-last-result')!.textContent = `🎲 ${d1}+${d2}=${total}`;
+    // 1. Focus dice roll in LIVE mode, roll 3D Dice -> Glow Pips -> Fuse into Total!
+    this.cameraDirector.focusDiceRoll();
+    const { d1, d2, total, isDoubles } = this.engine.rollDice();
+    await this.dice3D.animateRollAndFuseTotal(d1, d2, throwPower, this.gameSpeedMultiplier);
+
+    document.getElementById('dice-last-result')!.textContent =
+      `🎲 ${d1}+${d2}=${total}${isDoubles ? ' (ĐÔI!)' : ''}`;
     this.renderHUD();
 
-    // 2. Show 3-second countdown / Confirm button before stepping
-    await this.waitForDiceFusionConfirmation(d1, d2, total);
+    // 2. Spawn the 3D Target Beacon + 9 Floating Iron Blocks above the destination tile!
+    const targetTileIdx = (player.position + total) % BOARD_SIZE;
+    this.islandBoard.showTargetTileBeacon(targetTileIdx);
 
-    // 3. Step-by-step locomotion across `total` tiles on the 40-tile board
+    // 3. Show 3-second countdown / Confirm button before stepping
+    await this.waitForDiceFusionConfirmation(d1, d2, total, isDoubles);
+
+    // If in LIVE camera mode, smoothly lock back onto the player before stepping
+    await this.focusCurrentPlayerInLiveMode();
+
+    // 4. Step-by-step locomotion across `total` tiles on the 40-tile board
     for (let step = 0; step < total; step++) {
       const fromPos = this.islandBoard.getTileStandPosition(player.position, playerIdx);
       const { newPosition, passedStart } = this.engine.stepPlayerOneTile(player.id);
       const toPos = this.islandBoard.getTileStandPosition(newPosition, playerIdx);
+      const toTileCfg = this.engine.getTileConfig(newPosition);
 
+      this.cameraDirector.followCharacterStep(toPos, toTileCfg.outwardRotationY);
       await this.characters3D.animateStepToTile(player.characterId, fromPos, toPos, step);
 
       if (passedStart) {
@@ -446,9 +607,13 @@ class AstroCyberrMonopolyApp {
       }
     }
 
-    // 4. Update bottom-left tile popup & resolve landing
+    // Hide the 3D Target Beacon + 9 Iron Blocks once the character lands on the target tile
+    this.islandBoard.hideTargetTileBeacon();
+
+    // 5. Update bottom-left tile popup & resolve landing (includes 75% auto-sell rescue if low on cash)
     this.showBottomLeftTilePopup(player.position);
     const resolution = this.engine.resolveTileLanding(player.id);
+    this.syncAllBuildingsToBoard();
     this.renderHUD();
 
     if (resolution.action === 'PAID_RENT' || resolution.action === 'PAID_ROYAL_TAX') {
@@ -465,9 +630,9 @@ class AstroCyberrMonopolyApp {
     }
 
     if (player.isBot) {
-      await this.delay(650);
+      await this.delay(600 / this.gameSpeedMultiplier);
       await this.handleBotPostLanding(player.id, playerIdx);
-      await this.delay(550);
+      await this.delay(500 / this.gameSpeedMultiplier);
       this.advanceToNextTurn();
     } else {
       this.showHumanActionModal(player.id, playerIdx, resolution);
@@ -657,6 +822,7 @@ class AstroCyberrMonopolyApp {
 
           this.showBottomLeftTilePopup(targetIdx);
           const postPortalRes = this.engine.resolveTileLanding(playerId);
+          this.syncAllBuildingsToBoard();
           this.renderHUD();
 
           if (
@@ -741,9 +907,19 @@ class AstroCyberrMonopolyApp {
   private advanceToNextTurn(): void {
     if (this.engine.getWinner()) return;
 
-    const { activePlayer } = this.engine.nextTurn();
+    // Check if the current player rolled Doubles (d1 === d2) and gets a bonus turn!
+    const current = this.engine.getCurrentPlayer();
+    let activePlayer = current;
+    if (this.engine.canTakeExtraDoublesTurn()) {
+      soundManager.playCoinChime();
+    } else {
+      const next = this.engine.nextTurn();
+      activePlayer = next.activePlayer;
+    }
+
     this.isBusy = false;
     this.renderHUD();
+    this.focusCurrentPlayerInLiveMode();
 
     if (this.engine.getMode() === 'ONLINE_ROOM') {
       this.roomSync.broadcastState(this.engine.serialize());
@@ -753,8 +929,8 @@ class AstroCyberrMonopolyApp {
       const btnRoll = document.getElementById('btn-roll-dice') as HTMLButtonElement;
       btnRoll.disabled = true;
       window.setTimeout(() => {
-        this.executeCurrentPlayerTurn();
-      }, 750);
+        this.executeCurrentPlayerTurn(1.1);
+      }, Math.round(700 / this.gameSpeedMultiplier));
     }
   }
 
@@ -783,10 +959,6 @@ class AstroCyberrMonopolyApp {
     });
   }
 
-  /**
-   * Requirement #7:
-   * Non-intrusive Bottom-Left Tile Popup arranged vertically from top to bottom with clear spacing.
-   */
   private showBottomLeftTilePopup(tileIndex: number): void {
     const popup = document.getElementById('tile-popup-bottom-left')!;
     const header = document.getElementById('tile-popup-header')!;
@@ -870,13 +1042,6 @@ class AstroCyberrMonopolyApp {
     popup.classList.remove('hidden');
   }
 
-  /**
-   * Requirements #5 & #6:
-   * Compact rectangular player cards showing ONLY:
-   * - 3D Character Avatar standing on a Minecraft Grass Block
-   * - Player Name
-   * - Emerald Green `$` Balance
-   */
   private renderHUD(): void {
     const active = this.engine.getCurrentPlayer();
 
@@ -897,6 +1062,7 @@ class AstroCyberrMonopolyApp {
         const isCurrent = p.id === active.id;
         return `
           <div class="player-rect-card ${isCurrent ? 'active-turn' : ''} ${p.bankrupt ? 'bankrupt' : ''}">
+            ${isCurrent ? '<span class="active-turn-pill">▶ ĐANG ĐI</span>' : ''}
             <canvas
               class="player-grass-avatar-canvas"
               width="76"
@@ -912,7 +1078,6 @@ class AstroCyberrMonopolyApp {
       })
       .join('');
 
-    // Render each character standing on a 3D Minecraft Grass Block onto their card canvas
     sidebar
       .querySelectorAll<HTMLCanvasElement>('canvas[data-char-avatar]')
       .forEach((canvas) => {
@@ -920,11 +1085,10 @@ class AstroCyberrMonopolyApp {
         drawCharacterOnGrassBlockAvatar(canvas, charId);
       });
 
-    // Render Event Logs
     const logContainer = document.getElementById('event-log-list')!;
     logContainer.innerHTML = this.engine
       .getLogs()
-      .slice(0, 18)
+      .slice(0, 28)
       .map((item) => `<div class="log-item">${item}</div>`)
       .join('');
   }

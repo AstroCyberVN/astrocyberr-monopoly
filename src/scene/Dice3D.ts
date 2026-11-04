@@ -141,7 +141,6 @@ function createGlowingNumberSprite(
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
 
-  // Outer glow circle
   const grad = ctx.createRadialGradient(128, 128, 30, 128, 128, 120);
   grad.addColorStop(0, bgColor);
   grad.addColorStop(0.72, borderColor);
@@ -151,7 +150,6 @@ function createGlowingNumberSprite(
   ctx.arc(128, 128, 120, 0, Math.PI * 2);
   ctx.fill();
 
-  // Inner badge circle
   ctx.fillStyle = '#0f172a';
   ctx.beginPath();
   ctx.arc(128, 128, 78, 0, Math.PI * 2);
@@ -161,9 +159,8 @@ function createGlowingNumberSprite(
   ctx.lineWidth = 10;
   ctx.stroke();
 
-  // Crisp number text
   ctx.fillStyle = '#ffffff';
-  ctx.font = '900 92px Nunito, sans-serif';
+  ctx.font = '900 92px "Be Vietnam Pro", "Chakra Petch", "Nunito", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 128, 134);
@@ -226,74 +223,89 @@ export class Dice3D {
   }
 
   /**
-   * 1. Throws 2 3D voxel dice onto the center platform
+   * 1. Throws 2 3D voxel dice onto the center platform (scaled by `throwPower` from Spacebar hold!)
    * 2. Lights up the pips on the top faces of both dice
    * 3. Lifts the glowing pips into the air to form the 2 numbers (d1 & d2)
    * 4. Fuses the 2 numbers together into the Total (d1 + d2)!
    */
-  public async animateRollAndFuseTotal(d1: number, d2: number): Promise<void> {
+  public async animateRollAndFuseTotal(
+    d1: number,
+    d2: number,
+    throwPower = 1.0,
+    speedMultiplier = 1.0
+  ): Promise<void> {
     this.clearFusionFX();
-    await this.animatePhysicalBounce(d1, d2);
-    await this.animateGlowingPipsAndFusion(d1, d2);
+    await this.animatePhysicalBounce(d1, d2, throwPower, speedMultiplier);
+    await this.animateGlowingPipsAndFusion(d1, d2, speedMultiplier);
   }
 
-  private animatePhysicalBounce(d1: number, d2: number): Promise<void> {
+  private animatePhysicalBounce(
+    d1: number,
+    d2: number,
+    throwPower: number,
+    speedMultiplier: number
+  ): Promise<void> {
     return new Promise((resolve) => {
       const e1 = getTargetEulerForValue(d1);
       const e2 = getTargetEulerForValue(d2);
 
-      this.die1.position.set(-1.9, 5.5, -1.2);
-      this.die2.position.set(1.9, 5.8, 1.2);
+      // Higher throwPower (from holding Spacebar) launches dice higher and spins faster!
+      const pwr = THREE.MathUtils.clamp(throwPower, 1.0, 2.2);
+      const startHeight = 5.4 * pwr;
+
+      this.die1.position.set(-2.0 * pwr, startHeight, -1.3 * pwr);
+      this.die2.position.set(2.0 * pwr, startHeight + 0.4, 1.3 * pwr);
 
       const state = { t: 0 };
       let b1 = false;
       let b2 = false;
       let b3 = false;
 
-      const spin1X = e1.x + Math.PI * 6;
+      const spinMult = Math.round(3 * pwr) * 2;
+      const spin1X = e1.x + Math.PI * spinMult;
       const spin1Y = e1.y + Math.PI * 4;
-      const spin1Z = e1.z + Math.PI * 6;
+      const spin1Z = e1.z + Math.PI * spinMult;
 
-      const spin2X = e2.x - Math.PI * 6;
+      const spin2X = e2.x - Math.PI * spinMult;
       const spin2Y = e2.y + Math.PI * 6;
       const spin2Z = e2.z - Math.PI * 4;
 
       gsap.to(state, {
         t: 1,
-        duration: 0.9,
+        duration: 0.9 / Math.max(1, speedMultiplier),
         ease: 'none',
         onUpdate: () => {
           const t = state.t;
-          this.die1.position.x = THREE.MathUtils.lerp(-1.9, -1.05, t);
-          this.die1.position.z = THREE.MathUtils.lerp(-1.2, 0.2, t);
-          this.die2.position.x = THREE.MathUtils.lerp(1.9, 1.05, t);
-          this.die2.position.z = THREE.MathUtils.lerp(1.2, -0.2, t);
+          this.die1.position.x = THREE.MathUtils.lerp(-2.0 * pwr, -1.05, t);
+          this.die1.position.z = THREE.MathUtils.lerp(-1.3 * pwr, 0.2, t);
+          this.die2.position.x = THREE.MathUtils.lerp(2.0 * pwr, 1.05, t);
+          this.die2.position.z = THREE.MathUtils.lerp(1.3 * pwr, -0.2, t);
 
           let h = 0;
           if (t < 0.45) {
             const u = t / 0.45;
-            h = 4.4 * (1 - u * u);
+            h = 4.4 * pwr * (1 - u * u);
           } else if (t < 0.75) {
             if (!b1) {
               b1 = true;
               soundManager.playDiceBounce(1.0);
             }
             const u = (t - 0.45) / 0.3;
-            h = Math.sin(u * Math.PI) * 1.5;
+            h = Math.sin(u * Math.PI) * 1.55 * pwr;
           } else if (t < 0.92) {
             if (!b2) {
               b2 = true;
               soundManager.playDiceBounce(0.65);
             }
             const u = (t - 0.75) / 0.17;
-            h = Math.sin(u * Math.PI) * 0.55;
+            h = Math.sin(u * Math.PI) * 0.58 * pwr;
           } else {
             if (!b3) {
               b3 = true;
               soundManager.playDiceBounce(0.35);
             }
             const u = (t - 0.92) / 0.08;
-            h = Math.sin(u * Math.PI) * 0.16;
+            h = Math.sin(u * Math.PI) * 0.18 * pwr;
           }
 
           this.die1.position.y = 1.15 + h;
@@ -325,7 +337,11 @@ export class Dice3D {
   /**
    * Lights up the pips on the top faces -> lifts them up into floating numbers d1 & d2 -> fuses into Total!
    */
-  private animateGlowingPipsAndFusion(d1: number, d2: number): Promise<void> {
+  private animateGlowingPipsAndFusion(
+    d1: number,
+    d2: number,
+    speedMultiplier: number
+  ): Promise<void> {
     return new Promise((resolve) => {
       soundManager.playDicePipGlowAndFuse();
 
@@ -373,9 +389,11 @@ export class Dice3D {
 
       this.fxGroup.add(numSprite1, numSprite2, totalSprite);
 
-      const tl = gsap.timeline({ onComplete: () => resolve() });
+      const tl = gsap.timeline({
+        onComplete: () => resolve()
+      });
+      tl.timeScale(Math.max(1, speedMultiplier));
 
-      // Step 1: Pips glow brightly on the dice faces (0.28s)
       pips1.concat(pips2).forEach((orb) => {
         tl.to(
           orb.scale,
@@ -390,7 +408,6 @@ export class Dice3D {
         );
       });
 
-      // Step 2: Glowing pips fly up and converge into the 2 numbers d1 and d2 (0.25s -> 0.58s)
       pips1.forEach((orb) => {
         tl.to(
           orb.position,
@@ -432,7 +449,6 @@ export class Dice3D {
         0.46
       );
 
-      // Step 3: Hold briefly so player sees [d1] and [d2], then FUSE together into [d1 + d2] (0.85s -> 1.15s)
       tl.to(
         numSprite1.position,
         { x: 0, y: 3.8, z: 0, duration: 0.26, ease: 'power3.in' },
@@ -446,7 +462,6 @@ export class Dice3D {
       tl.to(numSprite1.scale, { x: 0.01, y: 0.01, z: 1, duration: 0.1 }, 1.06);
       tl.to(numSprite2.scale, { x: 0.01, y: 0.01, z: 1, duration: 0.1 }, 1.06);
 
-      // Step 4: Giant Fused Total pops out!
       tl.to(
         totalSprite.scale,
         {

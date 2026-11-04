@@ -2,6 +2,7 @@ export class SoundManager {
   private ctx: AudioContext | null = null;
   private sfxEnabled = true;
   private bgmEnabled = false;
+  private masterVolume = 0.85;
   private bgmTimer: number | null = null;
   private bgmStep = 0;
 
@@ -31,6 +32,14 @@ export class SoundManager {
     return this.bgmEnabled;
   }
 
+  public getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  public setMasterVolume(val: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, val));
+  }
+
   public toggleSfx(): boolean {
     this.sfxEnabled = !this.sfxEnabled;
     if (this.sfxEnabled) {
@@ -49,7 +58,26 @@ export class SoundManager {
     return this.bgmEnabled;
   }
 
-  /** Tiếng cộc-cộc gỗ vuông khi xúc xắc nảy trên mặt sân đảo */
+  /** Tiếng tích tụ lực khi giữ phím Space gồng Thanh Lực Ném Xúc Xắc */
+  public playPowerChargeTick(ratio: number): void {
+    if (!this.sfxEnabled) return;
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    const freq = 260 + ratio * 620;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(0.08 * this.masterVolume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.06);
+  }
+
   public playDiceBounce(intensity = 1): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -68,8 +96,8 @@ export class SoundManager {
     filter.type = 'bandpass';
     filter.frequency.setValueAtTime(520, now);
 
-    const vol = Math.min(0.28, 0.22 * intensity);
-    gain.gain.setValueAtTime(vol, now);
+    const vol = Math.min(0.32, 0.22 * intensity) * this.masterVolume;
+    gain.gain.setValueAtTime(Math.max(0.002, vol), now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
 
     osc.connect(filter);
@@ -80,14 +108,12 @@ export class SoundManager {
     osc.stop(now + 0.065);
   }
 
-  /** Tiếng phát sáng các nút xúc xắc -> bay lên -> dung hợp thành tổng */
   public playDicePipGlowAndFuse(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
     if (!ctx) return;
 
     const now = ctx.currentTime;
-    // Rising magical chime when pips glow & lift
     const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
     notes.forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -97,7 +123,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(freq, t);
       osc.frequency.exponentialRampToValueAtTime(freq * 1.06, t + 0.14);
 
-      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.setValueAtTime(0.12 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
 
       osc.connect(gain);
@@ -106,7 +132,6 @@ export class SoundManager {
       osc.stop(t + 0.19);
     });
 
-    // Fusion impact chord at +0.62s
     const chord = [523.25, 783.99, 1046.5, 1567.98];
     chord.forEach((freq) => {
       const osc = ctx.createOscillator();
@@ -114,7 +139,7 @@ export class SoundManager {
       osc.type = 'triangle';
       const t = now + 0.62;
       osc.frequency.setValueAtTime(freq, t);
-      gain.gain.setValueAtTime(0.11, t);
+      gain.gain.setValueAtTime(0.11 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -123,7 +148,6 @@ export class SoundManager {
     });
   }
 
-  /** Tiếng boing dễ thương khi Steve & Alex nhảy lò cò từng ô */
   public playStepBoing(stepIndex = 0): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -139,7 +163,7 @@ export class SoundManager {
     osc.frequency.exponentialRampToValueAtTime(520 * pitchShift, now + 0.09);
     osc.frequency.exponentialRampToValueAtTime(340 * pitchShift, now + 0.15);
 
-    gain.gain.setValueAtTime(0.18, now);
+    gain.gain.setValueAtTime(0.18 * this.masterVolume, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
 
     osc.connect(gain);
@@ -149,7 +173,6 @@ export class SoundManager {
     osc.stop(now + 0.17);
   }
 
-  /** Tiếng dịch chuyển tức thời kèm hạt tím của Enderman */
   public playEndermanTeleport(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -169,7 +192,7 @@ export class SoundManager {
     osc2.frequency.setValueAtTime(420, now);
     osc2.frequency.exponentialRampToValueAtTime(980, now + 0.18);
 
-    gain.gain.setValueAtTime(0.14, now);
+    gain.gain.setValueAtTime(0.14 * this.masterVolume, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
 
     osc1.connect(gain);
@@ -182,7 +205,6 @@ export class SoundManager {
     osc2.stop(now + 0.2);
   }
 
-  /** Tiếng xì ngòi nổ + Nổ BÙM như TNT của Creeper ở mỗi bước nhảy */
   public playCreeperStepBoom(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -206,8 +228,8 @@ export class SoundManager {
     filter.frequency.exponentialRampToValueAtTime(180, now + 0.12);
 
     const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.15, now);
-    noiseGain.gain.setValueAtTime(0.28, now + 0.08);
+    noiseGain.gain.setValueAtTime(0.15 * this.masterVolume, now);
+    noiseGain.gain.setValueAtTime(0.28 * this.masterVolume, now + 0.08);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
     noise.connect(filter);
@@ -223,7 +245,7 @@ export class SoundManager {
     sub.frequency.exponentialRampToValueAtTime(36, now + 0.24);
 
     subGain.gain.setValueAtTime(0.001, now);
-    subGain.gain.setValueAtTime(0.26, now + 0.07);
+    subGain.gain.setValueAtTime(0.26 * this.masterVolume, now + 0.07);
     subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
     sub.connect(subGain);
@@ -232,7 +254,6 @@ export class SoundManager {
     sub.stop(now + 0.26);
   }
 
-  /** Tiếng ting-ting 8-Bit khi nhận $ */
   public playCoinChime(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -247,7 +268,7 @@ export class SoundManager {
       const start = now + idx * 0.075;
       osc.frequency.setValueAtTime(freq, start);
 
-      gain.gain.setValueAtTime(0.11, start);
+      gain.gain.setValueAtTime(0.11 * this.masterVolume, start);
       gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
 
       osc.connect(gain);
@@ -257,7 +278,6 @@ export class SoundManager {
     });
   }
 
-  /** Tiếng mọc nhà nảy lùn phùn */
   public playBuildPop(level = 1): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -275,7 +295,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(baseNotes[i], t);
       osc.frequency.exponentialRampToValueAtTime(baseNotes[i] * 1.12, t + 0.08);
 
-      gain.gain.setValueAtTime(0.18, t);
+      gain.gain.setValueAtTime(0.18 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
 
       osc.connect(gain);
@@ -285,7 +305,6 @@ export class SoundManager {
     }
   }
 
-  /** Tiếng trả tiền thuê / nộp thuế */
   public playPayRent(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -299,7 +318,7 @@ export class SoundManager {
       osc.type = 'sawtooth';
       const t = now + i * 0.07;
       osc.frequency.setValueAtTime(freq, t);
-      gain.gain.setValueAtTime(0.1, t);
+      gain.gain.setValueAtTime(0.1 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -308,7 +327,6 @@ export class SoundManager {
     });
   }
 
-  /** Tiếng Cổng Dịch Chuyển The End ngân vang */
   public playPortalWarp(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -324,7 +342,7 @@ export class SoundManager {
       osc.frequency.setValueAtTime(f, t);
       osc.frequency.exponentialRampToValueAtTime(f * 1.25, t + 0.25);
 
-      gain.gain.setValueAtTime(0.12, t);
+      gain.gain.setValueAtTime(0.12 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
 
       osc.connect(gain);
@@ -334,7 +352,6 @@ export class SoundManager {
     });
   }
 
-  /** Tiếng pháo hoa & nhạc fanfare khi chiến thắng */
   public playVictoryFireworks(): void {
     if (!this.sfxEnabled) return;
     const ctx = this.ensureContext();
@@ -351,7 +368,7 @@ export class SoundManager {
       const t = now + delays[idx];
       osc.frequency.setValueAtTime(freq, t);
 
-      gain.gain.setValueAtTime(0.14, t);
+      gain.gain.setValueAtTime(0.14 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
 
       osc.connect(gain);
@@ -381,7 +398,7 @@ export class SoundManager {
       this.bgmStep += 1;
 
       osc.frequency.setValueAtTime(note, now);
-      gain.gain.setValueAtTime(0.045, now);
+      gain.gain.setValueAtTime(0.045 * this.masterVolume, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
 
       osc.connect(gain);

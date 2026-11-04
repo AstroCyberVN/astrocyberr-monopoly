@@ -7,16 +7,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Press+Start+2P&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@600;700;800;900&family=Chakra+Petch:wght@700;800&family=Nunito:wght@700;800;900&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
     <div id="app">
-      <!-- 3D WebGL Canvas Container (45° Panoramic Tilt + 360° Drag Orbit) -->
+      <!-- 3D WebGL Canvas Container -->
       <div id="canvas-container" aria-label="Bàn cờ 3D Đảo Nổi 40 Ô AstroCyberr Monopoly"></div>
 
-      <!-- Compact Top Navigation Bar (Height slimmed, Title only, Right SVG Gear Button) -->
+      <!-- Redesigned Top Navigation Bar (Vietnamese Font + Camera Normal/Live Switcher + Reset + Modern Settings) -->
       <header id="top-hud">
         <div class="brand-badge">
           <span class="brand-icon">⛏️</span>
@@ -29,11 +29,37 @@
         </div>
 
         <div class="nav-right-wrapper">
+          <!-- Dual Camera Mode Switcher: Normal vs Live -->
+          <div class="cam-mode-segmented" role="group" aria-label="Chế độ Camera">
+            <button
+              id="btn-cam-normal"
+              class="cam-seg-btn active"
+              title="Camera Normal: Góc nhìn toàn cảnh 45°, click vào ô để lướt mượt tới xem"
+            >
+              🎥 Normal
+            </button>
+            <button
+              id="btn-cam-live"
+              class="cam-seg-btn"
+              title="Camera Live: Tự động di chuyển bám theo nhân vật đang tới lượt"
+            >
+              🎬 Live
+            </button>
+          </div>
+
+          <button
+            id="btn-cam-reset"
+            class="cam-reset-btn"
+            title="Đưa camera lướt mượt về góc nhìn toàn cảnh 45° (Phím tắt: R)"
+          >
+            🔄 Toàn Cảnh
+          </button>
+
           <button
             id="btn-settings-gear"
             class="gear-icon-btn"
-            aria-label="Cài đặt âm thanh & chế độ chơi"
-            title="Cài đặt"
+            aria-label="Cài đặt hệ thống"
+            title="Cài đặt hệ thống"
           >
             <svg
               width="20"
@@ -52,34 +78,78 @@
             </svg>
           </button>
 
-          <!-- Settings Popover Menu -->
+          <!-- Redesigned Modern Settings Popover Menu -->
           <div id="settings-popover" class="settings-popover hidden">
-            <div class="popover-title">⚙️ Cài Đặt Hệ Thống</div>
-            <button id="btn-sfx-toggle" class="popover-item">
-              <span>🔊 Âm Thanh SFX</span>
-              <strong id="sfx-status-label" class="emerald-text">BẬT</strong>
-            </button>
-            <button id="btn-bgm-toggle" class="popover-item">
-              <span>🎵 Nhạc Nền 8-Bit</span>
-              <strong id="bgm-status-label" class="muted-text">TẮT</strong>
-            </button>
+            <div class="popover-title">
+              <span>⚙️ CÀI ĐẶT HỆ THỐNG</span>
+              <span class="popover-version">v3.0</span>
+            </div>
+
+            <!-- Toggle Switch: SFX -->
+            <div class="popover-row" id="btn-sfx-toggle" role="button" tabindex="0">
+              <div class="popover-row-label">
+                <span>🔊 Hiệu Ứng Âm Thanh</span>
+                <small id="sfx-status-label" class="emerald-text">Đang bật</small>
+              </div>
+              <div id="sfx-switch-ui" class="toggle-switch on">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+
+            <!-- Toggle Switch: BGM -->
+            <div class="popover-row" id="btn-bgm-toggle" role="button" tabindex="0">
+              <div class="popover-row-label">
+                <span>🎵 Nhạc Nền 8-Bit</span>
+                <small id="bgm-status-label" class="muted-text">Đang tắt</small>
+              </div>
+              <div id="bgm-switch-ui" class="toggle-switch">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+
+            <!-- Master Volume Slider -->
+            <div class="popover-slider-box">
+              <div class="popover-slider-head">
+                <span>🎚️ Âm Lượng Tổng</span>
+                <strong id="volume-pct-label" class="emerald-text">80%</strong>
+              </div>
+              <input
+                id="slider-master-volume"
+                type="range"
+                min="0"
+                max="100"
+                value="80"
+                class="volume-range-slider"
+              />
+            </div>
+
+            <!-- Game Speed Selector (1x / 2x) -->
+            <div class="popover-speed-box">
+              <span>⚡ Tốc Độ Chạy</span>
+              <div class="speed-pill-group">
+                <button id="btn-speed-1x" class="speed-pill active">1x Chuẩn</button>
+                <button id="btn-speed-2x" class="speed-pill">2x Nhanh</button>
+              </div>
+            </div>
+
             <div class="popover-divider"></div>
+
             <button id="btn-mode-select" class="popover-item">
-              <span>🎮 Chế Độ Chơi (4P)</span>
+              <span>🎮 Đổi Chế Độ Chơi (4P)</span>
               <span>➔</span>
             </button>
             <button id="btn-blockbench-info" class="popover-item">
-              <span>🧊 Model Blockbench</span>
+              <span>🧊 Bộ 5 Model Blockbench</span>
               <span>➔</span>
             </button>
           </div>
         </div>
       </header>
 
-      <!-- Compact 4-Player Rectangular Cards Sidebar (Left: Model on Grass Block + Name & $ Coin only) -->
+      <!-- Highlighted 4-Player Cards Sidebar (Left: Model on Grass Block + Name + $ Coin + Active Turn Badge) -->
       <aside id="players-sidebar" aria-label="Danh sách 4 người chơi"></aside>
 
-      <!-- Bottom-Left Non-Intrusive Tile Info Popup (Vertical layout with clear spacing) -->
+      <!-- Bottom-Left Non-Intrusive Tile Info Popup (Shown AFTER smooth camera fly-to completes!) -->
       <section
         id="tile-popup-bottom-left"
         class="tile-popup-bottom-left hidden"
@@ -90,20 +160,20 @@
             <span id="tile-popup-icon">🚩</span>
             <h3 id="tile-popup-title">#0 Ô Khởi Hành</h3>
           </div>
-          <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng">✕</button>
+          <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng và về toàn cảnh">✕</button>
         </div>
         <div class="tile-popup-vertical-body" id="tile-popup-body"></div>
       </section>
 
-      <!-- Collapsible Right Event Log Sidebar with Arrow Toggle & Custom Scrollbar -->
-      <aside id="event-log-drawer" class="event-log-drawer">
+      <!-- Elongated Collapsible Right Event Log Sidebar (Default CLOSED / collapsed on page load!) -->
+      <aside id="event-log-drawer" class="event-log-drawer collapsed">
         <button
           id="btn-toggle-log-drawer"
           class="log-drawer-arrow-btn"
-          title="Thu gọn / Mở rộng Nhật ký ván đấu"
+          title="Mở / Đóng Nhật ký ván đấu"
           aria-label="Đóng mở nhật ký"
         >
-          <span id="log-drawer-arrow-icon">▶</span>
+          <span id="log-drawer-arrow-icon">◀</span>
         </button>
         <div class="log-drawer-panel">
           <div class="log-drawer-header">
@@ -122,6 +192,7 @@
           <span class="fusion-die-badge" id="fusion-d2">4</span>
           <span class="fusion-equals">=</span>
           <span class="fusion-total-badge" id="fusion-total">7 BƯỚC</span>
+          <span id="fusion-doubles-tag" class="fusion-doubles-tag hidden">🔥 ĐỔ ĐÔI! +1 LƯỢT</span>
         </div>
         <button id="btn-confirm-move-now" class="btn-confirm-move">
           🚀 Tiếp Tục Di Chuyển (<span id="fusion-countdown-sec">3</span>s)
@@ -133,8 +204,17 @@
         <div class="action-card-inner" id="action-card-inner"></div>
       </div>
 
-      <!-- Bottom-Right Roll Dice Button (No tips above button) -->
+      <!-- Bottom-Right Roll Dice Dock with Spacebar Power Charge Bar -->
       <div id="bottom-right-dock">
+        <div id="roll-power-bar-wrap" class="roll-power-bar-wrap">
+          <div class="roll-power-label-row">
+            <span>⚡ LỰC NÉM (GIỮ SPACE)</span>
+            <strong id="roll-power-pct">0%</strong>
+          </div>
+          <div class="roll-power-track">
+            <div id="roll-power-fill" class="roll-power-fill"></div>
+          </div>
+        </div>
         <button id="btn-roll-dice" class="btn-roll-dice">
           <span class="dice-icon-anim">🎲</span>
           <span id="btn-roll-text">TUNG XÚC XẮC</span>

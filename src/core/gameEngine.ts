@@ -29,7 +29,6 @@ export interface PlayerState {
 export interface TileState {
   index: number;
   ownerId: string | null;
-  /** 0 = unowned, 1 = Wooden Fence, 2 = Oak Cottage, 3 = 2-Story Villa, 4 = Crown Castle */
   level: number;
   festivalMultiplier: number;
 }
@@ -71,6 +70,7 @@ export class GameEngine {
   private mode: GameMode;
   private round = 1;
   private currentPlayerIndex = 0;
+  private consecutiveDoubles = 0;
   private players: PlayerState[] = [];
   private tiles: TileState[] = [];
   private lastDice: [number, number] | null = null;
@@ -86,6 +86,7 @@ export class GameEngine {
     this.mode = mode;
     this.round = 1;
     this.currentPlayerIndex = 0;
+    this.consecutiveDoubles = 0;
     this.lastDice = null;
     this.winnerId = null;
     this.logs = [];
@@ -171,24 +172,46 @@ export class GameEngine {
 
   public addLog(entry: string): void {
     this.logs.unshift(entry);
-    if (this.logs.length > 50) {
+    if (this.logs.length > 60) {
       this.logs.pop();
     }
   }
 
-  public rollDice(forced?: [number, number]): { d1: number; d2: number; total: number } {
+  public rollDice(forced?: [number, number]): {
+    d1: number;
+    d2: number;
+    total: number;
+    isDoubles: boolean;
+  } {
     const d1 = forced ? forced[0] : Math.floor(Math.random() * 6) + 1;
     const d2 = forced ? forced[1] : Math.floor(Math.random() * 6) + 1;
     this.lastDice = [d1, d2];
+    const isDoubles = d1 === d2;
     const p = this.getCurrentPlayer();
-    this.addLog(`🎲 ${p.emoji} ${p.name} tung xúc xắc: ${d1} + ${d2} = ${d1 + d2} bước!`);
-    return { d1, d2, total: d1 + d2 };
+
+    if (isDoubles) {
+      this.consecutiveDoubles += 1;
+      this.addLog(
+        `✨ ĐỔ ĐÔI! ${p.emoji} ${p.name} tung được ${d1} + ${d2} = ${d1 + d2} bước (Thưởng thêm lượt)!`
+      );
+    } else {
+      this.consecutiveDoubles = 0;
+      this.addLog(`🎲 ${p.emoji} ${p.name} tung xúc xắc: ${d1} + ${d2} = ${d1 + d2} bước!`);
+    }
+
+    return { d1, d2, total: d1 + d2, isDoubles };
   }
 
-  /**
-   * Advances a player by 1 tile around the 40-tile island perimeter.
-   * Awards +$200 immediately whenever the player steps onto Tile 0 (Start).
-   */
+  public canTakeExtraDoublesTurn(): boolean {
+    const p = this.getCurrentPlayer();
+    return (
+      !p.bankrupt &&
+      p.skipTurns === 0 &&
+      this.consecutiveDoubles > 0 &&
+      this.consecutiveDoubles <= 2
+    );
+  }
+
   public stepPlayerOneTile(playerId: string): {
     oldPosition: number;
     newPosition: number;
@@ -210,7 +233,9 @@ export class GameEngine {
 
   public ownsFullColorGroup(ownerId: string, colorGroup?: ColorGroupId): boolean {
     if (!colorGroup) return false;
-    const groupTiles = BOARD_TILES.filter((t) => t.type === 'PROPERTY' && t.colorGroup === colorGroup);
+    const groupTiles = BOARD_TILES.filter(
+      (t) => t.type === 'PROPERTY' && t.colorGroup === colorGroup
+    );
     return groupTiles.length > 0 && groupTiles.every((t) => this.tiles[t.index].ownerId === ownerId);
   }
 
@@ -252,7 +277,10 @@ export class GameEngine {
     return rent;
   }
 
-  public buyProperty(playerId: string, tileIndex = this.getPlayerById(playerId).position): {
+  public buyProperty(
+    playerId: string,
+    tileIndex = this.getPlayerById(playerId).position
+  ): {
     ok: boolean;
     reason?: string;
   } {
@@ -274,9 +302,7 @@ export class GameEngine {
     player.gold -= price;
     state.ownerId = player.id;
     state.level = 1;
-    this.addLog(
-      `🏠 ${player.emoji} ${player.name} đã mua [${cfg.name}] với giá $${price}!`
-    );
+    this.addLog(`🏠 ${player.emoji} ${player.name} đã mua [${cfg.name}] với giá $${price}!`);
     return { ok: true };
   }
 
@@ -295,7 +321,11 @@ export class GameEngine {
       return { ok: false, newLevel: state.level, reason: 'Bạn không phải chủ sở hữu ô đất này.' };
     }
     if (state.level >= 4) {
-      return { ok: false, newLevel: state.level, reason: 'Công trình đã đạt cấp tối đa (Lâu Đài Vương Miện).' };
+      return {
+        ok: false,
+        newLevel: state.level,
+        reason: 'Công trình đã đạt cấp tối đa (Lâu Đài Vương Miện).'
+      };
     }
 
     const cost = cfg.upgradeCost ?? 80;
@@ -457,7 +487,10 @@ export class GameEngine {
 
       case 'DESERTED_ISLAND': {
         player.skipTurns = 1;
-        this.addLog(`🏝️ ${player.emoji} ${player.name} lạc vào Đảo Hoang! Phải nghỉ 1 lượt tiếp theo.`);
+        this.consecutiveDoubles = 0;
+        this.addLog(
+          `🏝️ ${player.emoji} ${player.name} lạc vào Đảo Hoang! Phải nghỉ 1 lượt tiếp theo.`
+        );
         return {
           action: 'SKIP_TURN_SET',
           tileIndex,
@@ -505,12 +538,41 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Emergency 75% property liquidation when a player's gold drops below 0
+   */
   private checkBankruptcy(player: PlayerState, creditorId: string | null): void {
     if (player.gold >= 0) return;
 
+    // Attempt to auto-sell owned properties at 75% total value to rescue the player!
+    const ownedTiles = this.tiles
+      .filter((t) => t.ownerId === player.id)
+      .sort((a, b) => this.calculateRent(a.index) - this.calculateRent(b.index));
+
+    for (const tileState of ownedTiles) {
+      if (player.gold >= 0) break;
+      const cfg = this.getTileConfig(tileState.index);
+      const basePrice = cfg.price ?? 100;
+      const upgradeTotal = Math.max(0, tileState.level - 1) * (cfg.upgradeCost ?? 60);
+      const resaleValue = Math.round((basePrice + upgradeTotal) * 0.75);
+
+      player.gold += resaleValue;
+      tileState.ownerId = null;
+      tileState.level = 0;
+      tileState.festivalMultiplier = 1;
+
+      this.addLog(
+        `🏦 ${player.emoji} ${player.name} bán khẩn cấp [${cfg.name}] thu về +$${resaleValue} (75% giá trị) để trả nợ!`
+      );
+    }
+
+    if (player.gold >= 0) {
+      return;
+    }
+
     player.bankrupt = true;
     player.gold = 0;
-    this.addLog(`💀 ${player.emoji} ${player.name} đã phá sản!`);
+    this.addLog(`💀 ${player.emoji} ${player.name} đã chính thức phá sản!`);
 
     for (const t of this.tiles) {
       if (t.ownerId === player.id) {
@@ -533,7 +595,13 @@ export class GameEngine {
     }
   }
 
-  public nextTurn(): { activePlayer: PlayerState; skippedPlayer?: PlayerState } {
+  public nextTurn(): { activePlayer: PlayerState; skippedPlayer?: PlayerState; extraTurn?: boolean } {
+    if (this.canTakeExtraDoublesTurn()) {
+      const current = this.getCurrentPlayer();
+      return { activePlayer: current, extraTurn: true };
+    }
+
+    this.consecutiveDoubles = 0;
     const total = this.players.length;
     let skippedPlayer: PlayerState | undefined;
 
