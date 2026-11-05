@@ -66,6 +66,10 @@ export interface TileResolutionResult {
   payerPrevGold?: number;
   ownerPrevGold?: number;
   chestCard?: ChestCard;
+  movedFromTile?: number;
+  movedToTile?: number;
+  moveDirection?: 'FORWARD' | 'BACKWARD';
+  sentToJailByCard?: boolean;
   message: string;
 }
 
@@ -1208,10 +1212,31 @@ export class GameEngine {
           player.jailFreeCards = (player.jailFreeCards ?? 0) + 1;
         }
 
+        const oldPos = player.position;
+        let movedFromTile: number | undefined;
+        let movedToTile: number | undefined;
+        let moveDirection: 'FORWARD' | 'BACKWARD' | undefined;
+        let sentToJailByCard: boolean | undefined;
+
         if (card.goToJail) {
           this.sendPlayerToJail(player.id, `Thẻ ${deckLabel}: ${card.title}`);
+          movedFromTile = oldPos;
+          movedToTile = 10;
+          sentToJailByCard = true;
         } else if (typeof card.moveToTile === 'number') {
-          player.position = ((card.moveToTile % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+          const target = ((card.moveToTile % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+          if (target !== 0 && target < oldPos) {
+            const bonus = this.getStartBonus(player);
+            player.gold += bonus;
+            effectiveGoldDelta += bonus;
+            this.addLog(
+              `🚩 ${player.emoji} ${player.name} bay qua Đại Lộ Khởi Hành và nhận +$${bonus}!`
+            );
+          }
+          player.position = target;
+          movedFromTile = oldPos;
+          movedToTile = target;
+          moveDirection = 'FORWARD';
         } else if (typeof card.stepDelta === 'number' && card.stepDelta !== 0) {
           const rawPos = player.position + card.stepDelta;
           if (card.stepDelta > 0 && rawPos >= BOARD_SIZE) {
@@ -1219,7 +1244,11 @@ export class GameEngine {
             player.gold += bonus;
             effectiveGoldDelta += bonus;
           }
-          player.position = ((rawPos % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+          const target = ((rawPos % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+          player.position = target;
+          movedFromTile = oldPos;
+          movedToTile = target;
+          moveDirection = card.stepDelta >= 0 ? 'FORWARD' : 'BACKWARD';
         }
 
         this.addLog(
@@ -1233,6 +1262,10 @@ export class GameEngine {
           amount: effectiveGoldDelta,
           payerPrevGold: prevGold,
           chestCard: card,
+          movedFromTile,
+          movedToTile,
+          moveDirection,
+          sentToJailByCard,
           message: `[${deckLabel}] ${card.title} — ${card.description}`
         };
       }
@@ -1273,7 +1306,9 @@ export class GameEngine {
           action: 'SENT_TO_JAIL',
           tileIndex,
           tileName: cfg.name,
-          message: `🚓 ${player.name} bước vào ô [${cfg.name}] và bị áp giải thẳng về #10 Nhà Tù Chí Hòa (Không được nhận $200 qua Khởi Hành)!`
+          movedFromTile: tileIndex,
+          movedToTile: 10,
+          message: `🌀 ${player.name} bước vào Cổng Không Gian The End tại [${cfg.name}], bị hút xoáy xuống hố đen và rơi từ Cổng Không Gian trên bầu trời thẳng xuống #10 Nhà Tù Chí Hòa!`
         };
       }
 

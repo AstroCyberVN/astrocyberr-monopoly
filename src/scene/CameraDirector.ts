@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import gsap from 'gsap';
-import { CharacterId, TileConfig } from '../core/boardData';
+import { TileConfig } from '../core/boardData';
 import { TILE_SPACING } from './IslandBoard3D';
 
 export type CameraStyle = 'NORMAL' | 'LIVE';
@@ -8,19 +8,17 @@ export type CameraStyle = 'NORMAL' | 'LIVE';
 export type LiveDirectorStage = 'FOLLOW_PLAYER' | 'DICE_OVER_SHOULDER' | 'EVENT_CLOSEUP';
 
 /**
- * Dual-Mode 3D Camera Director for AstroCyberr Monopoly (v4.0):
- * 1. NORMAL Mode (Free Spherical 3D Orbit — Unlocked Pitch & 360° Yaw + Character Follow):
+ * Dual-Mode 3D Camera Director for AstroCyberr Monopoly:
+ * 1. NORMAL Mode (Free Spherical 3D Orbit — Unlocked Pitch & 360° Yaw):
  *    - Free 360° horizontal rotation (Yaw) AND free vertical tilt (Pitch from 10° low street-view to 84° top-down)
  *      by dragging the mouse in any direction, plus smooth wheel zoom.
- *    - Clicking any 3D Character Model (or pressing A / D, or clicking a Player Card) locks the Normal Camera
- *      pivot onto that character so you can follow them in real-time and rotate 360° / tilt around them!
  *    - Clicking any tile smoothly flies the camera (`0.65s` GSAP ease) to face that tile.
- *    - Pressing `R` / clicking `Toàn Cảnh` releases character/tile lock and returns to full-island overview.
- * 2. LIVE Mode (3-Stage Director Cuts + Live Broadcast HUD + A/D Target Switching):
+ *    - Pressing `R` / clicking `Toàn Cảnh` returns to full-island overview.
+ * 2. LIVE Mode (3-Stage Automatic Director Cuts):
  *    - Stage 1 (Over-the-Shoulder Dice Action Shot): Lowers behind the active character's shoulder looking toward
  *      the center courtyard dice arena during power charge & dice roll.
- *    - Stage 2 (3rd-Person Chase Cam + Smooth Corner Banking): Tracks the active character step-by-step around the
- *      40-tile island, smoothly banking around the 4 corners (#0, #10, #20, #30).
+ *    - Stage 2 (3rd-Person Chase Cam + Smooth Corner Banking): Automatically tracks the active turn character
+ *      around the 40-tile island, including high-altitude card flight & End Portal -> Sky Jail drop cutscenes.
  *    - Stage 3 (Event & Transaction Close-Up): Zooms in cinematically on the tile/building during property purchase,
  *      upgrade, or 3D parabolic '$' rent transfer.
  */
@@ -41,10 +39,6 @@ export class CameraDirector {
   private targetOrbitPitch = Math.PI / 4;
   private orbitZoom = 1.0;
 
-  // Character Follow state (works in both NORMAL mode and LIVE mode via click or A/D keys!)
-  private followedCharacterId: CharacterId | null = null;
-  private onFollowChangeCallback: ((charId: CharacterId | null) => void) | null = null;
-
   private isInspectingTile = false;
   private isTweening = false;
   private isDragging = false;
@@ -58,6 +52,11 @@ export class CameraDirector {
   private liveUserYawOffset = 0;
   private liveUserPitchOffset = 0;
 
+  // PixelFX Game Juice Camera Shake state
+  private shakeTimer = 0;
+  private shakeDuration = 0.25;
+  private shakeIntensity = 0;
+
   constructor(aspect: number, domElement: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(42, aspect, 0.1, 600);
     this.camera.position.copy(this.desiredPos);
@@ -66,33 +65,8 @@ export class CameraDirector {
     this.attachPointerControls(domElement);
   }
 
-  public onFollowChange(cb: (charId: CharacterId | null) => void): void {
-    this.onFollowChangeCallback = cb;
-  }
-
   public getCameraStyle(): CameraStyle {
     return this.style;
-  }
-
-  public getFollowedCharacterId(): CharacterId | null {
-    return this.followedCharacterId;
-  }
-
-  public setFollowedCharacter(charId: CharacterId | null, charWorldPos?: THREE.Vector3): void {
-    this.followedCharacterId = charId;
-    this.isInspectingTile = false;
-    this.isTweening = false;
-    gsap.killTweensOf(this.desiredPos);
-    gsap.killTweensOf(this.desiredLookAt);
-
-    if (charId && charWorldPos) {
-      this.liveFollowPos.copy(charWorldPos);
-      // Adjust zoom slightly closer when locking onto a character in Normal mode
-      if (this.style === 'NORMAL' && this.orbitZoom > 0.92) {
-        this.orbitZoom = 0.82;
-      }
-    }
-    this.onFollowChangeCallback?.(this.followedCharacterId);
   }
 
   public setCameraStyle(newStyle: CameraStyle): void {
@@ -103,16 +77,23 @@ export class CameraDirector {
     this.isTweening = false;
 
     if (newStyle === 'NORMAL') {
-      if (!this.followedCharacterId) {
-        this.resetToPanoramic();
-      }
+      this.resetToPanoramic();
     } else {
       this.liveStage = 'FOLLOW_PLAYER';
       this.liveUserYawOffset = 0;
       this.liveUserPitchOffset = 0;
       this.updateLiveCameraTargets(this.liveFollowPos, this.liveOutwardYaw);
     }
-    this.onFollowChangeCallback?.(this.followedCharacterId);
+  }
+
+  /**
+   * Triggers a crisp damped camera shake for high-impact PixelFX moments
+   * (dice doubles slam, level 4 castle upgrade, End Portal -> Jail drop).
+   */
+  public triggerCameraShake(intensity = 0.32, durationSec = 0.26): void {
+    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+    this.shakeDuration = Math.max(0.08, durationSec);
+    this.shakeTimer = this.shakeDuration;
   }
 
   private attachPointerControls(el: HTMLElement): void {
@@ -180,8 +161,6 @@ export class CameraDirector {
         this.isInspectingTile = false;
         this.targetOrbitPitch = THREE.MathUtils.clamp(this.targetOrbitPitch - 0.1, 0.18, 1.46);
       } else if (e.key === 'r' || e.key === 'R') {
-        this.followedCharacterId = null;
-        this.onFollowChangeCallback?.(null);
         this.resetToPanoramic();
       }
     });
@@ -258,8 +237,6 @@ export class CameraDirector {
   public resetToPanoramic(speedMultiplier = 1): Promise<void> {
     return new Promise((resolve) => {
       this.isInspectingTile = false;
-      this.followedCharacterId = null;
-      this.onFollowChangeCallback?.(null);
       this.isTweening = true;
 
       gsap.killTweensOf(this.desiredPos);
@@ -482,6 +459,62 @@ export class CameraDirector {
     });
   }
 
+  /**
+   * Cinematic camera framing for the End Portal -> Sky Jail Portal Drop Cutscene at Tile #10!
+   * Transitions the camera to Tile #10 (Nhà Tù Chí Hòa) looking at mid-height (Y = 2.4) so both
+   * the Overhead Sky End Portal (Y = 4.6) and the prison floor (Y = 0.59) are clearly in frame.
+   */
+  public focusJailSkyPortalCutscene(jailTile: TileConfig, speedMultiplier = 1): Promise<void> {
+    return new Promise((resolve) => {
+      this.isInspectingTile = true;
+      this.isTweening = true;
+      if (this.style === 'LIVE') {
+        this.liveStage = 'EVENT_CLOSEUP';
+      }
+
+      gsap.killTweensOf(this.desiredPos);
+      gsap.killTweensOf(this.desiredLookAt);
+
+      const tileWorldX = jailTile.gridX * TILE_SPACING;
+      const tileWorldZ = jailTile.gridZ * TILE_SPACING;
+      const ry = jailTile.outwardRotationY - 0.32;
+      const outX = Math.sin(ry);
+      const outZ = Math.cos(ry);
+
+      const targetLook = new THREE.Vector3(tileWorldX, 2.25, tileWorldZ);
+      const targetCamPos = new THREE.Vector3(
+        tileWorldX + outX * 10.8,
+        6.8,
+        tileWorldZ + outZ * 10.8
+      );
+
+      this.targetOrbitYaw = Math.atan2(targetCamPos.x - targetLook.x, targetCamPos.z - targetLook.z);
+      this.orbitYaw = this.targetOrbitYaw;
+
+      const dur = 0.56 / Math.max(1, speedMultiplier);
+
+      gsap.to(this.desiredLookAt, {
+        x: targetLook.x,
+        y: targetLook.y,
+        z: targetLook.z,
+        duration: dur,
+        ease: 'power2.inOut'
+      });
+
+      gsap.to(this.desiredPos, {
+        x: targetCamPos.x,
+        y: targetCamPos.y,
+        z: targetCamPos.z,
+        duration: dur,
+        ease: 'power2.inOut',
+        onComplete: () => {
+          this.isTweening = false;
+          resolve();
+        }
+      });
+    });
+  }
+
   public followCharacterStep(worldPos: THREE.Vector3, outwardRotationY = 0): void {
     this.liveFollowPos.copy(worldPos);
     this.liveOutwardYaw = outwardRotationY;
@@ -499,53 +532,45 @@ export class CameraDirector {
     this.camera.updateProjectionMatrix();
   }
 
-  public update(dt: number, followedCharacterWorldPos?: THREE.Vector3): void {
+  public update(dt: number, activeCharacterWorldPos?: THREE.Vector3): void {
     const smooth = Math.min(1, dt * 9.0);
     this.orbitYaw = THREE.MathUtils.lerp(this.orbitYaw, this.targetOrbitYaw, smooth);
     this.orbitPitch = THREE.MathUtils.lerp(this.orbitPitch, this.targetOrbitPitch, smooth);
 
     if (this.style === 'NORMAL' && !this.isInspectingTile && !this.isTweening) {
-      if (this.followedCharacterId && followedCharacterWorldPos) {
-        // Orbit 360° & Free Pitch around the followed character!
-        const pivotX = followedCharacterWorldPos.x;
-        const pivotY = followedCharacterWorldPos.y + 0.6;
-        const pivotZ = followedCharacterWorldPos.z;
+      // Full-Island Free Spherical Orbit (Unlocked Pitch + 360° Yaw)
+      const radius = 34.5 * this.orbitZoom;
+      const horizDist = Math.cos(this.orbitPitch) * radius;
+      const vertDist = Math.sin(this.orbitPitch) * radius;
 
-        const radius = 12.5 * this.orbitZoom;
-        const horizDist = Math.cos(this.orbitPitch) * radius;
-        const vertDist = Math.sin(this.orbitPitch) * radius;
-
-        this.desiredLookAt.set(pivotX, pivotY, pivotZ);
-        this.desiredPos.set(
-          pivotX + Math.sin(this.orbitYaw) * horizDist,
-          Math.max(1.4, pivotY + vertDist),
-          pivotZ + Math.cos(this.orbitYaw) * horizDist
-        );
-      } else {
-        // Full-Island Free Spherical Orbit (Unlocked Pitch + 360° Yaw)
-        const radius = 34.5 * this.orbitZoom;
-        const horizDist = Math.cos(this.orbitPitch) * radius;
-        const vertDist = Math.sin(this.orbitPitch) * radius;
-
-        this.desiredPos.set(
-          Math.sin(this.orbitYaw) * horizDist,
-          Math.max(2.2, vertDist),
-          Math.cos(this.orbitYaw) * horizDist
-        );
-        this.desiredLookAt.copy(this.islandCenter);
-      }
+      this.desiredPos.set(
+        Math.sin(this.orbitYaw) * horizDist,
+        Math.max(2.2, vertDist),
+        Math.cos(this.orbitYaw) * horizDist
+      );
+      this.desiredLookAt.copy(this.islandCenter);
     } else if (
       this.style === 'LIVE' &&
       this.liveStage === 'FOLLOW_PLAYER' &&
       !this.isTweening &&
-      followedCharacterWorldPos
+      activeCharacterWorldPos
     ) {
-      this.liveFollowPos.copy(followedCharacterWorldPos);
+      this.liveFollowPos.copy(activeCharacterWorldPos);
       this.updateLiveCameraTargets(this.liveFollowPos, this.liveOutwardYaw);
     }
 
     this.camera.position.lerp(this.desiredPos, smooth);
     this.currentLookAt.lerp(this.desiredLookAt, smooth);
+
+    if (this.shakeTimer > 0) {
+      this.shakeTimer = Math.max(0, this.shakeTimer - dt);
+      const decay = this.shakeTimer / Math.max(0.01, this.shakeDuration);
+      const amp = this.shakeIntensity * decay * decay;
+      this.camera.position.x += (Math.random() - 0.5) * 2 * amp;
+      this.camera.position.y += (Math.random() - 0.5) * 2 * amp;
+      this.camera.position.z += (Math.random() - 0.5) * 2 * amp;
+    }
+
     this.camera.lookAt(this.currentLookAt);
   }
 }

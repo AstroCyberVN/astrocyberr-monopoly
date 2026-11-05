@@ -376,6 +376,359 @@ export class ChibiCharacters3D {
       rig.root.rotation.set(0, 0, 0);
       rig.root.scale.setScalar(1);
       rig.visualGroup.scale.set(1, 1, 1);
+      rig.visualGroup.position.set(0, 0, 0);
+      rig.visualGroup.rotation.set(0, 0, 0);
+    });
+  }
+
+  /**
+   * Animates a continuous high-altitude flight around the board perimeter (1 full loop or segment path)
+   * when a player draws a Khí Vận / Cơ Hội movement card (`moveToTile` or `stepDelta`).
+   */
+  public animatePerimeterFlightToTile(
+    id: CharacterId,
+    waypoints: Array<{
+      position: THREE.Vector3;
+      outwardRotY: number;
+      rotX: number;
+      rotZ: number;
+      scale: number;
+    }>,
+    speedMultiplier = 1,
+    onProgress?: (currentWorldPos: THREE.Vector3, stepIdx: number) => void
+  ): Promise<void> {
+    const rig = this.rigs.get(id);
+    if (!rig || rig.eliminated || waypoints.length === 0) return Promise.resolve();
+
+    rig.isStepping = true;
+    const speedFactor = Math.max(1, Math.min(4.5, 1 + (speedMultiplier - 1) * 0.75));
+    const startPos = rig.root.position.clone();
+    const finalWp = waypoints[waypoints.length - 1];
+    const flightAltitude = 2.45;
+
+    return new Promise<void>((resolve) => {
+      soundManager.playPortalWarp();
+      const tl = gsap.timeline({
+        onComplete: () => {
+          rig.visualGroup.rotation.set(0, 0, 0);
+          rig.visualGroup.position.set(0, 0, 0);
+          rig.visualGroup.scale.set(1, 1, 1);
+          rig.leftArmPivot.rotation.set(0, 0, 0);
+          rig.rightArmPivot.rotation.set(0, 0, 0);
+          rig.leftLegPivot.rotation.set(0, 0, 0);
+          rig.rightLegPivot.rotation.set(0, 0, 0);
+          rig.root.position.copy(finalWp.position);
+          rig.root.rotation.y = finalWp.outwardRotY;
+          rig.root.rotation.x = finalWp.rotX;
+          rig.root.rotation.z = finalWp.rotZ;
+          rig.root.scale.setScalar(finalWp.scale);
+          rig.isStepping = false;
+          resolve();
+        }
+      });
+
+      // Phase 1: Ascend into the air in superhero flight pose
+      tl.to(
+        rig.root.position,
+        {
+          y: startPos.y + flightAltitude,
+          duration: 0.34 / speedFactor,
+          ease: 'back.out(1.7)',
+          onUpdate: () => {
+            onProgress?.(rig.root.position.clone(), 0);
+          }
+        },
+        0
+      );
+      tl.to(
+        rig.visualGroup.rotation,
+        {
+          x: 0.42,
+          duration: 0.28 / speedFactor,
+          ease: 'power2.out'
+        },
+        0
+      );
+      tl.to(
+        [rig.leftArmPivot.rotation, rig.rightArmPivot.rotation],
+        {
+          x: -2.55,
+          duration: 0.28 / speedFactor
+        },
+        0
+      );
+
+      // Phase 2: Glide smoothly along every perimeter tile waypoint from origin to destination
+      const pathPoints = [startPos, ...waypoints.map((w) => w.position)];
+      const totalSteps = waypoints.length;
+      const perTileDur = Math.max(0.038, Math.min(0.11, 1.35 / Math.max(1, totalSteps))) / speedFactor;
+      const totalFlightDur = Math.max(0.28 / speedFactor, perTileDur * totalSteps);
+      const flightState = { u: 0, lastStepEmitted: -1 };
+
+      tl.to(flightState, {
+        u: totalSteps,
+        duration: totalFlightDur,
+        ease: 'power1.inOut',
+        onUpdate: () => {
+          const exactIdx = flightState.u;
+          const segIdx = Math.min(totalSteps - 1, Math.floor(exactIdx));
+          const localT = exactIdx - segIdx;
+          const pA = pathPoints[segIdx];
+          const pB = pathPoints[segIdx + 1];
+
+          const curX = THREE.MathUtils.lerp(pA.x, pB.x, localT);
+          const curZ = THREE.MathUtils.lerp(pA.z, pB.z, localT);
+          const baseY = THREE.MathUtils.lerp(pA.y, pB.y, localT);
+          const waveY = Math.sin((exactIdx / totalSteps) * Math.PI) * 0.45;
+
+          rig.root.position.set(curX, baseY + flightAltitude + waveY, curZ);
+
+          const dx = pB.x - pA.x;
+          const dz = pB.z - pA.z;
+          if (Math.abs(dx) > 0.001 || Math.abs(dz) > 0.001) {
+            rig.root.rotation.y = Math.atan2(dx, dz);
+          }
+
+          if (segIdx !== flightState.lastStepEmitted) {
+            flightState.lastStepEmitted = segIdx;
+            if (segIdx % 2 === 0) {
+              soundManager.playStepBoing(segIdx);
+            }
+            onProgress?.(rig.root.position.clone(), segIdx + 1);
+          }
+        }
+      });
+
+      // Phase 3: Descend & touch down on the target tile with Squash & Stretch
+      tl.to(
+        rig.visualGroup.rotation,
+        {
+          x: 0,
+          duration: 0.22 / speedFactor,
+          ease: 'power2.out'
+        },
+        '>-0.05'
+      );
+      tl.to(
+        rig.root.position,
+        {
+          x: finalWp.position.x,
+          y: finalWp.position.y,
+          z: finalWp.position.z,
+          duration: 0.28 / speedFactor,
+          ease: 'bounce.out',
+          onStart: () => {
+            rig.root.rotation.y = finalWp.outwardRotY;
+            rig.leftArmPivot.rotation.set(0, 0, 0);
+            rig.rightArmPivot.rotation.set(0, 0, 0);
+          },
+          onComplete: () => {
+            this.particles.spawnFootstepDust(finalWp.position, '#fde047');
+            onProgress?.(finalWp.position.clone(), totalSteps);
+          }
+        },
+        '<'
+      );
+      tl.fromTo(
+        rig.visualGroup.scale,
+        { x: 1.28, y: 0.68, z: 1.28 },
+        {
+          x: 1,
+          y: 1,
+          z: 1,
+          duration: 0.24 / speedFactor,
+          ease: 'elastic.out(1.1, 0.45)'
+        }
+      );
+    });
+  }
+
+  /**
+   * Phase 1 of the End Portal -> Jail Cutscene:
+   * Spins, stretches, and sucks the character down into the black starfield void of the End Portal!
+   */
+  public animateEndPortalSuckIn(
+    id: CharacterId,
+    portalWorldPos: THREE.Vector3,
+    speedMultiplier = 1
+  ): Promise<void> {
+    const rig = this.rigs.get(id);
+    if (!rig || rig.eliminated) return Promise.resolve();
+
+    rig.isStepping = true;
+    const speedFactor = Math.max(1, Math.min(4.0, 1 + (speedMultiplier - 1) * 0.65));
+
+    return new Promise<void>((resolve) => {
+      soundManager.playPortalWarp();
+      this.particles.spawnEndermanPortalParticles(rig.root.position.clone());
+
+      const spinState = { rotY: 0 };
+      const tl = gsap.timeline({
+        onComplete: () => {
+          rig.root.visible = false;
+          rig.visualGroup.rotation.set(0, 0, 0);
+          rig.visualGroup.scale.set(1, 1, 1);
+          resolve();
+        }
+      });
+
+      // Pull character over the center of the End Portal & lift into the vortex
+      tl.to(
+        rig.root.position,
+        {
+          x: portalWorldPos.x,
+          y: portalWorldPos.y + 1.15,
+          z: portalWorldPos.z,
+          duration: 0.36 / speedFactor,
+          ease: 'back.out(1.6)'
+        },
+        0
+      );
+      tl.to(
+        [rig.leftArmPivot.rotation, rig.rightArmPivot.rotation],
+        {
+          x: -2.9,
+          duration: 0.25 / speedFactor
+        },
+        0
+      );
+      tl.to(
+        spinState,
+        {
+          rotY: Math.PI * 8,
+          duration: 0.72 / speedFactor,
+          ease: 'power2.in',
+          onUpdate: () => {
+            rig.visualGroup.rotation.y = spinState.rotY;
+          }
+        },
+        0
+      );
+
+      // Spaghettify & plunge straight down into the End Portal void!
+      tl.to(
+        rig.visualGroup.scale,
+        {
+          x: 0.28,
+          y: 1.95,
+          z: 0.28,
+          duration: 0.22 / speedFactor,
+          ease: 'power2.in'
+        },
+        0.26 / speedFactor
+      );
+      tl.to(
+        rig.root.position,
+        {
+          y: portalWorldPos.y - 0.85,
+          duration: 0.28 / speedFactor,
+          ease: 'power3.in'
+        },
+        0.38 / speedFactor
+      );
+      tl.to(
+        rig.visualGroup.scale,
+        {
+          x: 0.01,
+          y: 0.01,
+          z: 0.01,
+          duration: 0.24 / speedFactor,
+          ease: 'power3.in'
+        },
+        0.42 / speedFactor
+      );
+    });
+  }
+
+  /**
+   * Phase 2 of the End Portal -> Jail Cutscene:
+   * Drops the character from the Overhead Sky End Portal (Y = 4.6 above Tile #10)
+   * straight down onto the floor of #10 Nhà Tù Chí Hòa with heavy impact squash!
+   */
+  public animateDropFromSkyPortalIntoJail(
+    id: CharacterId,
+    skyPortalPos: THREE.Vector3,
+    jailStandTf: { position: THREE.Vector3; rotX: number; rotZ: number; scale: number },
+    jailOutwardRotY: number,
+    speedMultiplier = 1,
+    onImpact?: (impactPos: THREE.Vector3) => void
+  ): Promise<void> {
+    const rig = this.rigs.get(id);
+    if (!rig || rig.eliminated) return Promise.resolve();
+
+    rig.isStepping = true;
+    const speedFactor = Math.max(1, Math.min(4.0, 1 + (speedMultiplier - 1) * 0.65));
+
+    // Place character up inside the overhead End Portal above Tile #10
+    rig.root.visible = true;
+    rig.root.position.set(jailStandTf.position.x, skyPortalPos.y - 0.15, jailStandTf.position.z);
+    rig.root.rotation.set(jailStandTf.rotX, jailOutwardRotY, jailStandTf.rotZ);
+    rig.root.scale.setScalar(jailStandTf.scale);
+    rig.visualGroup.rotation.set(0, 0, 0);
+    rig.visualGroup.scale.set(0.05, 0.05, 0.05);
+    rig.leftArmPivot.rotation.set(-2.85, 0, -0.25);
+    rig.rightArmPivot.rotation.set(-2.85, 0, 0.25);
+
+    return new Promise<void>((resolve) => {
+      this.particles.spawnEndermanPortalParticles(
+        new THREE.Vector3(jailStandTf.position.x, skyPortalPos.y - 0.2, jailStandTf.position.z)
+      );
+
+      const tl = gsap.timeline({
+        onComplete: () => {
+          rig.visualGroup.scale.set(1, 1, 1);
+          rig.visualGroup.rotation.set(0, 0, 0);
+          rig.leftArmPivot.rotation.set(0, 0, 0);
+          rig.rightArmPivot.rotation.set(0, 0, 0);
+          rig.leftLegPivot.rotation.set(0, 0, 0);
+          rig.rightLegPivot.rotation.set(0, 0, 0);
+          rig.root.position.copy(jailStandTf.position);
+          rig.root.rotation.y = jailOutwardRotY;
+          rig.isStepping = false;
+          resolve();
+        }
+      });
+
+      // Pop out of the overhead Sky End Portal
+      tl.to(rig.visualGroup.scale, {
+        x: 0.78,
+        y: 1.42,
+        z: 0.78,
+        duration: 0.18 / speedFactor,
+        ease: 'back.out(2)'
+      });
+
+      // Plummet straight down onto Tile #10 Nhà Tù Chí Hòa
+      tl.to(
+        rig.root.position,
+        {
+          y: jailStandTf.position.y,
+          duration: 0.34 / speedFactor,
+          ease: 'power3.in',
+          onComplete: () => {
+            soundManager.playPayRent();
+            this.particles.spawnCreeperTntExplosion(jailStandTf.position.clone());
+            onImpact?.(jailStandTf.position.clone());
+          }
+        },
+        '>-0.04'
+      );
+
+      // Heavy slam squash on prison floor + elastic recovery
+      tl.to(rig.visualGroup.scale, {
+        x: 1.48,
+        y: 0.45,
+        z: 1.48,
+        duration: 0.09 / speedFactor,
+        ease: 'power2.out'
+      });
+      tl.to(rig.visualGroup.scale, {
+        x: 1,
+        y: 1,
+        z: 1,
+        duration: 0.34 / speedFactor,
+        ease: 'elastic.out(1.2, 0.42)'
+      });
     });
   }
 

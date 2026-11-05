@@ -44,14 +44,14 @@
             <button
               id="btn-cam-normal"
               class="cam-seg-btn active"
-              title="Camera Normal: Kéo chuột tự do mọi góc độ, click vào nhân vật hoặc bấm A/D để Follow (Phím tắt: F)"
+              title="Camera Normal: Kéo chuột tự do 360° mọi góc độ quanh đảo (Phím tắt: F)"
             >
               <span>🎥 Normal</span>
             </button>
             <button
               id="btn-cam-live"
               class="cam-seg-btn"
-              title="Camera Live: Góc máy đạo diễn 3 pha tự động bám theo nhân vật (Phím tắt: F)"
+              title="Camera Live: Góc máy đạo diễn 3 pha tự động bám theo nhân vật đang tới lượt (Phím tắt: F)"
             >
               <span>🎬 Live</span>
               <kbd class="key-hint">F</kbd>
@@ -61,7 +61,7 @@
           <button
             id="btn-cam-reset"
             class="cam-reset-btn"
-            title="Hủy theo dõi & đưa camera về góc nhìn toàn cảnh (Phím tắt: R)"
+            title="Đưa camera về góc nhìn toàn cảnh (Phím tắt: R)"
           >
             <span>🔄 Toàn Cảnh</span>
             <kbd class="key-hint">R</kbd>
@@ -173,30 +173,6 @@
         </div>
       </header>
 
-      <!-- Live Broadcast & Character Follow Status Banner (Supports A / D keys & 3D Model Click) -->
-      <div id="camera-follow-banner" class="camera-follow-banner hidden">
-        <span class="live-dot-pulse" id="follow-banner-dot"></span>
-        <span id="follow-banner-text">🔴 LIVE • Đang theo dõi: Steve — Ô #0</span>
-        <div class="follow-key-group">
-          <button
-            id="btn-follow-prev"
-            class="follow-nav-btn"
-            title="Chuyển sang nhân vật trước (Phím A)"
-          >
-            <span>◀</span>
-            <kbd class="key-hint">A</kbd>
-          </button>
-          <button
-            id="btn-follow-next"
-            class="follow-nav-btn"
-            title="Chuyển sang nhân vật kế tiếp (Phím D)"
-          >
-            <span>▶</span>
-            <kbd class="key-hint">D</kbd>
-          </button>
-        </div>
-      </div>
-
       <!-- Highlighted 4-Player Cards Sidebar (Left: Model on Grass Block + Name + $ Coin + Status Badges) -->
       <aside id="players-sidebar" aria-label="Danh sách 4 người chơi"></aside>
 
@@ -236,22 +212,6 @@
           <div id="event-log-list" class="event-log-list"></div>
         </div>
       </aside>
-
-      <!-- Dice Total Fusion Confirmation Overlay (Shown ONLY for Human Player Turns! Press Space to Skip) -->
-      <div id="dice-fusion-confirm-bar" class="dice-fusion-confirm-bar hidden">
-        <div class="fusion-formula-row">
-          <span class="fusion-die-badge" id="fusion-d1">3</span>
-          <span class="fusion-plus">+</span>
-          <span class="fusion-die-badge" id="fusion-d2">4</span>
-          <span class="fusion-equals">=</span>
-          <span class="fusion-total-badge" id="fusion-total">7 BƯỚC</span>
-          <span id="fusion-doubles-tag" class="fusion-doubles-tag hidden">🔥 ĐỔ ĐÔI! +1 LƯỢT</span>
-        </div>
-        <button id="btn-confirm-move-now" class="btn-confirm-move">
-          <span>Skip (<span id="fusion-countdown-sec">3</span>s)</span>
-          <kbd class="key-hint">Space</kbd>
-        </button>
-      </div>
 
       <!-- Floating Action Modal (Mua Đất [Space] / Bỏ Qua [Esc] / Xác Nhận Thanh Toán [Space] / Phá Sản [Space]) -->
       <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">

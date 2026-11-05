@@ -103,8 +103,9 @@ function createHighResTileTexture(
     ctx.fillStyle = '#f87171';
     ctx.fillText(`-$${tile.price ?? 120}`, 256, 449);
   } else if (tile.type === 'CHEST') {
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillText(`KHO BÁU`, 256, 449);
+    const isKhiVan = tile.index === 2 || tile.index === 17 || tile.index === 33;
+    ctx.fillStyle = isKhiVan ? '#fde047' : '#fb923c';
+    ctx.fillText(isKhiVan ? `KHÍ VẬN` : `CƠ HỘI`, 256, 449);
   } else if (tile.type === 'END_PORTAL') {
     ctx.fillStyle = '#d8b4fe';
     ctx.fillText(`CỔNG THE END`, 256, 449);
@@ -113,10 +114,10 @@ function createHighResTileTexture(
     ctx.fillText(`CỔNG NETHER`, 256, 449);
   } else if (tile.type === 'FESTIVAL') {
     ctx.fillStyle = '#f472b6';
-    ctx.fillText(`THUÊ x2`, 256, 449);
+    ctx.fillText(`LỄ HỘI x2`, 256, 449);
   } else {
     ctx.fillStyle = '#38bdf8';
-    ctx.fillText(`NGHỈ 1 LƯỢT`, 256, 449);
+    ctx.fillText(`THĂM TÙ / Ở TÙ`, 256, 449);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -327,6 +328,8 @@ function createMinecraftBeaconBeamTexture(): THREE.CanvasTexture {
 
 /**
  * 6. Authentic 16x16 End Portal Frame Top & Side Pixel-Art Textures
+ *    Features porous End Stone honeycomb cobble, ornate dark Ender-teal runes,
+ *    and a recessed central socket with Eye of Ender.
  */
 function createEndPortalFrameTopTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -334,29 +337,63 @@ function createEndPortalFrameTopTexture(): THREE.CanvasTexture {
   canvas.height = 16;
   const ctx = canvas.getContext('2d')!;
 
-  // End Stone cream base
-  ctx.fillStyle = '#dfd9a3';
-  ctx.fillRect(0, 0, 16, 16);
+  // Porous End Stone honeycomb cobble base (16x16)
+  const stonePalette = ['#ebe4b0', '#dfd699', '#d2c888', '#c2b876'];
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const idx = (x * 5 + y * 11 + ((x ^ y) * 3)) % stonePalette.length;
+      ctx.fillStyle = stonePalette[idx];
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
 
-  // Outer ornamental dark teal-green border
-  ctx.fillStyle = '#1b4d3e';
-  ctx.fillRect(0, 0, 16, 2);
-  ctx.fillRect(0, 14, 16, 2);
-  ctx.fillRect(0, 0, 2, 16);
-  ctx.fillRect(14, 0, 2, 16);
+  // Outer dark Ender-teal ornamental bevel rim
+  ctx.fillStyle = '#11382e';
+  ctx.fillRect(0, 0, 16, 1);
+  ctx.fillRect(0, 15, 16, 1);
+  ctx.fillRect(0, 0, 1, 16);
+  ctx.fillRect(15, 0, 1, 16);
 
-  // Corner emerald accents
-  ctx.fillStyle = '#45937a';
-  ctx.fillRect(1, 1, 3, 3);
-  ctx.fillRect(12, 1, 3, 3);
-  ctx.fillRect(1, 12, 3, 3);
-  ctx.fillRect(12, 12, 3, 3);
+  // Inner carved rune border (rows/cols 1 and 14)
+  ctx.fillStyle = '#1f5c4b';
+  ctx.fillRect(1, 1, 14, 1);
+  ctx.fillRect(1, 14, 14, 1);
+  ctx.fillRect(1, 1, 1, 14);
+  ctx.fillRect(14, 1, 1, 14);
 
-  // Center socket ring for Eye of Ender
-  ctx.fillStyle = '#0f2922';
+  // 4 Corner ancient Ender-emerald rune brackets + glowing cyan pixel glyphs
+  const corners = [
+    [1, 1],
+    [11, 1],
+    [1, 11],
+    [11, 11]
+  ];
+  for (const [cx, cy] of corners) {
+    ctx.fillStyle = '#28725f';
+    ctx.fillRect(cx, cy, 4, 4);
+    ctx.fillStyle = '#48a88e';
+    ctx.fillRect(cx + 1, cy + 1, 2, 2);
+    ctx.fillStyle = '#a7f3d0';
+    ctx.fillRect(cx + 1, cy + 1, 1, 1);
+  }
+
+  // Cardinal midpoint rune studs pointing toward the center Eye socket
+  ctx.fillStyle = '#338770';
+  ctx.fillRect(7, 2, 2, 2);
+  ctx.fillRect(7, 12, 2, 2);
+  ctx.fillRect(2, 7, 2, 2);
+  ctx.fillRect(12, 7, 2, 2);
+
+  // Recessed central socket ring for Eye of Ender (4..11)
+  ctx.fillStyle = '#09211b';
   ctx.fillRect(4, 4, 8, 8);
-  ctx.fillStyle = '#2c6e58';
+  ctx.fillStyle = '#164237';
   ctx.fillRect(5, 5, 6, 6);
+  ctx.fillStyle = '#2d7a66';
+  ctx.fillRect(5, 5, 6, 1);
+  ctx.fillRect(5, 5, 1, 6);
+  ctx.fillStyle = '#051410';
+  ctx.fillRect(6, 6, 4, 4);
 
   return finalizePixelTexture(canvas);
 }
@@ -367,26 +404,43 @@ function createEndPortalFrameSideTexture(): THREE.CanvasTexture {
   canvas.height = 16;
   const ctx = canvas.getContext('2d')!;
 
-  // End stone lower body
-  ctx.fillStyle = '#d5ce95';
-  ctx.fillRect(0, 0, 16, 16);
-
-  // Top dark green cap
-  ctx.fillStyle = '#1b4d3e';
-  ctx.fillRect(0, 0, 16, 4);
-
-  // Ancient teal rune pillars hanging down the side
-  ctx.fillStyle = '#2c6e58';
-  for (let x = 2; x <= 12; x += 5) {
-    ctx.fillRect(x, 4, 3, 8);
-    ctx.fillStyle = '#45937a';
-    ctx.fillRect(x + 1, 5, 1, 6);
-    ctx.fillStyle = '#2c6e58';
+  // Porous End Stone lower body with authentic cobble shading
+  const stonePalette = ['#e5dc9e', '#d6cd8e', '#c4ba7b', '#b0a668'];
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const idx = (x * 7 + y * 9 + ((x + y) & 3)) % stonePalette.length;
+      ctx.fillStyle = stonePalette[idx];
+      ctx.fillRect(x, y, 1, 1);
+    }
   }
 
-  // Bottom End stone cobble pixels
-  ctx.fillStyle = '#b8b078';
-  ctx.fillRect(0, 13, 16, 3);
+  // Top dark Ender-teal cap (rows 0..3) with emerald rim highlight
+  ctx.fillStyle = '#11382e';
+  ctx.fillRect(0, 0, 16, 4);
+  ctx.fillStyle = '#28725f';
+  ctx.fillRect(0, 1, 16, 2);
+  ctx.fillStyle = '#5eead4';
+  for (let x = 1; x < 16; x += 4) {
+    ctx.fillRect(x, 1, 2, 1);
+  }
+
+  // 3 Ancient Ender rune pillars hanging down the side (x = 1..4, 6..9, 11..14)
+  const pillarCols = [1, 6, 11];
+  for (const px of pillarCols) {
+    ctx.fillStyle = '#184a3d';
+    ctx.fillRect(px, 4, 4, 9);
+    ctx.fillStyle = '#2d7a66';
+    ctx.fillRect(px + 1, 4, 2, 8);
+    ctx.fillStyle = '#6ee7b7';
+    ctx.fillRect(px + 1, 5, 1, 2);
+    ctx.fillRect(px + 2, 8, 1, 2);
+  }
+
+  // Bottom shadowed End Stone base bevel (rows 13..15)
+  ctx.fillStyle = '#9e9458';
+  ctx.fillRect(0, 13, 16, 2);
+  ctx.fillStyle = '#7d7440';
+  ctx.fillRect(0, 15, 16, 1);
 
   return finalizePixelTexture(canvas);
 }
@@ -397,17 +451,35 @@ function createEyeOfEnderTexture(): THREE.CanvasTexture {
   canvas.height = 16;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#15803d';
+  // Outer dark emerald border
+  ctx.fillStyle = '#064e3b';
   ctx.fillRect(0, 0, 16, 16);
-  ctx.fillStyle = '#22c55e';
+
+  // Mid emerald-teal iris ring
+  ctx.fillStyle = '#059669';
+  ctx.fillRect(1, 1, 14, 14);
+  ctx.fillStyle = '#10b981';
   ctx.fillRect(2, 2, 12, 12);
-  ctx.fillStyle = '#86efac';
+
+  // Glowing lime-cyan inner iris
+  ctx.fillStyle = '#34d399';
+  ctx.fillRect(3, 3, 10, 10);
+  ctx.fillStyle = '#6ee7b7';
   ctx.fillRect(4, 4, 8, 8);
-  // Slit pupil
-  ctx.fillStyle = '#052e16';
+
+  // Vertical cat-like Ender slit pupil
+  ctx.fillStyle = '#022c22';
+  ctx.fillRect(7, 2, 2, 12);
+  ctx.fillStyle = '#064e3b';
+  ctx.fillRect(6, 4, 4, 8);
+  ctx.fillStyle = '#022c22';
   ctx.fillRect(7, 3, 2, 10);
+
+  // Specular white & violet magical glints
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(6, 4, 1, 2);
+  ctx.fillRect(5, 4, 2, 2);
+  ctx.fillStyle = '#d8b4fe';
+  ctx.fillRect(10, 10, 1, 2);
 
   return finalizePixelTexture(canvas);
 }
@@ -421,15 +493,23 @@ function createEndPortalVoidTexture(): THREE.CanvasTexture {
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#05050a';
+  ctx.fillStyle = '#030208';
   ctx.fillRect(0, 0, 64, 64);
 
-  const starColors = ['#38bdf8', '#c084fc', '#ffffff', '#34d399', '#818cf8'];
-  for (let i = 0; i < 55; i++) {
+  // Subtle concentric dimensional vortex rings inside the void
+  const ringColors = ['rgba(88, 28, 135, 0.32)', 'rgba(16, 185, 129, 0.25)', 'rgba(56, 189, 248, 0.28)'];
+  for (let r = 26; r >= 6; r -= 6) {
+    ctx.strokeStyle = ringColors[(r / 6) % ringColors.length | 0];
+    ctx.lineWidth = 2;
+    ctx.strokeRect(32 - r, 32 - r, r * 2, r * 2);
+  }
+
+  const starColors = ['#38bdf8', '#c084fc', '#ffffff', '#34d399', '#f472b6', '#fde047'];
+  for (let i = 0; i < 72; i++) {
     ctx.fillStyle = starColors[i % starColors.length];
     const sx = (i * 19 + 7) % 62;
     const sy = (i * 31 + 11) % 62;
-    const size = i % 5 === 0 ? 2 : 1;
+    const size = i % 6 === 0 ? 2 : 1;
     ctx.fillRect(sx, sy, size, size);
   }
 
@@ -510,6 +590,10 @@ export class IslandBoard3D {
   // UX-03: 3D Tile Picker Highlight Rings (for End Portal #30 & Festival #20)
   private pickerHighlightGroup = new THREE.Group();
 
+  // Overhead Sky End Portal above Tile #10 (Nhà Tù Chí Hòa) for the End Portal -> Jail Drop cutscene
+  private jailSkyPortalGroup?: THREE.Group;
+  private jailSkyVoidRing?: THREE.Mesh;
+
   constructor(scene: THREE.Scene, particles: ParticleSystem3D) {
     this.particles = particles;
     this.ironBlockTexture = createMinecraftIronBlockTexture();
@@ -529,6 +613,7 @@ export class IslandBoard3D {
     this.buildSatelliteMiniIslands();
     this.buildFloatingClouds();
     this.initTargetBeaconWithAuthenticTextures();
+    this.initJailSkyEndPortal();
     this.pickerHighlightGroup.name = 'Direct3DTilePickerRings';
     this.root.add(this.pickerHighlightGroup);
   }
@@ -1077,8 +1162,8 @@ export class IslandBoard3D {
         tileContainer.add(landmarkGroup);
       } else if (tile.type === 'END_PORTAL') {
         const portal = this.createEndPortalLandmark3D();
-        portal.position.set(0, 0, -0.58);
-        portal.rotation.x = 0.16;
+        portal.position.set(0, 0, -0.38);
+        portal.rotation.x = 0.08;
         landmarkGroup.add(portal);
         tileContainer.add(landmarkGroup);
       } else if (tile.type === 'NETHER_PORTAL') {
@@ -1088,11 +1173,10 @@ export class IslandBoard3D {
         landmarkGroup.add(netherPortal);
         tileContainer.add(landmarkGroup);
       } else if (tile.type === 'DESERTED_ISLAND') {
-        const palm = this.createVoxelTree('#84cc16', '#a16207');
-        palm.scale.setScalar(0.72);
-        palm.position.set(0, 0, -0.68);
-        palm.rotation.x = 0.15;
-        landmarkGroup.add(palm);
+        const prison = this.createChiHoaPrisonLandmark3D();
+        prison.position.set(0, 0, -0.64);
+        prison.rotation.x = 0.1;
+        landmarkGroup.add(prison);
         tileContainer.add(landmarkGroup);
       } else if (tile.type === 'FESTIVAL') {
         const arch = this.createFestivalArch3D();
@@ -1418,7 +1502,8 @@ export class IslandBoard3D {
 
   /**
    * Authentic Minecraft End Portal with 12 End Portal Frame Blocks (3 per side, hollow corners),
-   * 12 socketed Eyes of Ender, and a 3x3 Starfield Cosmic Void interior!
+   * 12 socketed Eyes of Ender oriented inward toward the portal center,
+   * and a 3x3 Starfield Cosmic Void interior!
    */
   private createEndPortalLandmark3D(): THREE.Group {
     const g = new THREE.Group();
@@ -1429,65 +1514,233 @@ export class IslandBoard3D {
     const voidTex = createEndPortalVoidTexture();
     this.endPortalVoidTextures.push(voidTex);
 
-    const topMat = new THREE.MeshStandardMaterial({ map: frameTopTex, roughness: 0.5 });
-    const sideMat = new THREE.MeshStandardMaterial({ map: frameSideTex, roughness: 0.6 });
-    const bottomMat = new THREE.MeshStandardMaterial({ color: '#dfd9a3', roughness: 0.7 });
+    const topMat = new THREE.MeshStandardMaterial({ map: frameTopTex, roughness: 0.42 });
+    const sideMat = new THREE.MeshStandardMaterial({ map: frameSideTex, roughness: 0.52 });
+    const bottomMat = new THREE.MeshStandardMaterial({ map: frameTopTex, roughness: 0.6 });
     const frameMaterials = [sideMat, sideMat, topMat, bottomMat, sideMat, sideMat];
 
     const eyeMat = new THREE.MeshStandardMaterial({
       map: eyeTex,
       emissive: '#10b981',
-      emissiveIntensity: 0.35,
-      roughness: 0.25
+      emissiveIntensity: 0.45,
+      roughness: 0.2
     });
 
-    // Block unit size s = 0.25 so the 5x5 ring fits handsomely on the tile (5 * 0.25 = 1.25 width)
-    const s = 0.24;
+    // Block unit size s = 0.27 so the 5x5 ring stands out clearly on the tile
+    const s = 0.27;
     const frameGeo = new THREE.BoxGeometry(s * 0.96, s * 0.82, s * 0.96);
-    const eyeGeo = new THREE.BoxGeometry(s * 0.52, s * 0.32, s * 0.52);
+    const eyeGeo = new THREE.BoxGeometry(s * 0.52, s * 0.34, s * 0.52);
 
-    // 12 End Portal Frame coordinates in a 5x5 ring (excluding the 4 corners ±2, ±2):
-    const ringCoords: Array<[number, number]> = [
-      // North side (3 frames)
-      [-1, -2],
-      [0, -2],
-      [1, -2],
-      // South side (3 frames)
-      [-1, 2],
-      [0, 2],
-      [1, 2],
-      // West side (3 frames)
-      [-2, -1],
-      [-2, 0],
-      [-2, 1],
-      // East side (3 frames)
-      [2, -1],
-      [2, 0],
-      [2, 1]
+    // 12 End Portal Frame coordinates in a 5x5 ring (excluding the 4 corners ±2, ±2) with inward rotation:
+    const ringCoords: Array<[number, number, number]> = [
+      // North side (3 frames facing South)
+      [-1, -2, 0],
+      [0, -2, 0],
+      [1, -2, 0],
+      // South side (3 frames facing North)
+      [-1, 2, Math.PI],
+      [0, 2, Math.PI],
+      [1, 2, Math.PI],
+      // West side (3 frames facing East)
+      [-2, -1, Math.PI / 2],
+      [-2, 0, Math.PI / 2],
+      [-2, 1, Math.PI / 2],
+      // East side (3 frames facing West)
+      [2, -1, -Math.PI / 2],
+      [2, 0, -Math.PI / 2],
+      [2, 1, -Math.PI / 2]
     ];
 
-    for (const [gx, gz] of ringCoords) {
+    for (const [gx, gz, rotY] of ringCoords) {
       const frameBlock = new THREE.Mesh(frameGeo, frameMaterials);
       frameBlock.position.set(gx * s, s * 0.41, gz * s);
+      frameBlock.rotation.y = rotY;
       frameBlock.castShadow = true;
       frameBlock.receiveShadow = true;
       g.add(frameBlock);
 
-      // Eye of Ender socketed on top of each of the 12 frames
+      // Eye of Ender socketed on top & bottom (so the overhead sky portal also shows eyes from below)
       const eyeBlock = new THREE.Mesh(eyeGeo, eyeMat);
       eyeBlock.position.set(gx * s, s * 0.95, gz * s);
+      eyeBlock.rotation.y = rotY;
       g.add(eyeBlock);
     }
 
     // 3x3 Cosmic Starfield Void inside the 12 frames
     const voidSurface = new THREE.Mesh(
-      new THREE.BoxGeometry(s * 3.1, s * 0.45, s * 3.1),
+      new THREE.BoxGeometry(s * 3.12, s * 0.46, s * 3.12),
       new THREE.MeshBasicMaterial({ map: voidTex })
     );
     voidSurface.position.set(0, s * 0.38, 0);
     g.add(voidSurface);
 
+    // Glowing Ender-emerald & violet inner rim aura
+    const rimAura = new THREE.Mesh(
+      new THREE.BoxGeometry(s * 3.22, s * 0.54, s * 3.22),
+      new THREE.MeshBasicMaterial({
+        color: '#a855f7',
+        transparent: true,
+        opacity: 0.25,
+        wireframe: true
+      })
+    );
+    rimAura.position.set(0, s * 0.42, 0);
+    g.add(rimAura);
+
     return g;
+  }
+
+  /**
+   * 3D Voxel "Nhà Tù Chí Hòa" Prison Cell & Watchtower on Tile #10
+   */
+  private createChiHoaPrisonLandmark3D(): THREE.Group {
+    const g = new THREE.Group();
+    const stoneMat = new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.85 });
+    const darkStoneMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.9 });
+    const ironBarMat = new THREE.MeshStandardMaterial({
+      color: '#cbd5e1',
+      metalness: 0.75,
+      roughness: 0.3
+    });
+    const sirenMat = new THREE.MeshBasicMaterial({ color: '#f97316' });
+
+    // Stone prison floor & rear wall
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.14, 0.78), darkStoneMat);
+    base.position.set(0, 0.07, 0);
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.76, 0.16), stoneMat);
+    backWall.position.set(0, 0.45, -0.3);
+    backWall.castShadow = true;
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.16, 0.82), darkStoneMat);
+    roof.position.set(0, 0.88, 0);
+    roof.castShadow = true;
+    g.add(base, backWall, roof);
+
+    // Corner stone pillars
+    for (const px of [-0.5, 0.5]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.76, 0.74), stoneMat);
+      pillar.position.set(px, 0.45, 0);
+      pillar.castShadow = true;
+      g.add(pillar);
+    }
+
+    // Front Iron Bars (Song sắt Nhà Tù Chí Hòa)
+    for (let bx = -0.34; bx <= 0.34; bx += 0.17) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.74, 0.045), ironBarMat);
+      bar.position.set(bx, 0.45, 0.32);
+      g.add(bar);
+    }
+    const crossBar = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.05, 0.05), ironBarMat);
+    crossBar.position.set(0, 0.48, 0.32);
+    g.add(crossBar);
+
+    // Top Watchtower & Warning Beacon
+    const tower = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.42), stoneMat);
+    tower.position.set(0, 1.1, -0.1);
+    const siren = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), sirenMat);
+    siren.position.set(0, 1.35, -0.1);
+    g.add(tower, siren);
+
+    return g;
+  }
+
+  /**
+   * Initializes the Overhead Sky End Portal above Tile #10 (Nhà Tù Chí Hòa) at Y = 4.6.
+   * When a player is arrested (from #30 End Portal, Card, or 3x Doubles), this portal
+   * opens in the sky above #10 and drops the player straight down into Jail!
+   */
+  private initJailSkyEndPortal(): void {
+    const jailTile = BOARD_TILES[10];
+    const worldX = jailTile.gridX * TILE_SPACING;
+    const worldZ = jailTile.gridZ * TILE_SPACING;
+
+    this.jailSkyPortalGroup = new THREE.Group();
+    this.jailSkyPortalGroup.name = 'JailSkyEndPortalOverhead';
+    this.jailSkyPortalGroup.position.set(worldX, 4.6, worldZ);
+    this.jailSkyPortalGroup.visible = false;
+
+    const skyPortalMesh = this.createEndPortalLandmark3D();
+    skyPortalMesh.scale.setScalar(1.38);
+    // Flip upside down so the Eyes of Ender & Starfield Void face downward toward Tile #10
+    skyPortalMesh.rotation.x = Math.PI;
+    this.jailSkyPortalGroup.add(skyPortalMesh);
+
+    // Add a top-facing copy of the void so top-down cameras also see the cosmic portal clearly
+    const topPortalMesh = this.createEndPortalLandmark3D();
+    topPortalMesh.scale.setScalar(1.38);
+    topPortalMesh.position.y = 0.05;
+    this.jailSkyPortalGroup.add(topPortalMesh);
+
+    // Downward dimensional tractor beam cylinder connecting Sky Portal (Y=4.6) to Tile #10
+    const beamGeo = new THREE.BoxGeometry(1.15, 3.9, 1.15);
+    beamGeo.translate(0, -1.95, 0);
+    const beamMat = new THREE.MeshBasicMaterial({
+      map: this.beaconBeamTexture,
+      color: '#a855f7',
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false
+    });
+    this.jailSkyVoidRing = new THREE.Mesh(beamGeo, beamMat);
+    this.jailSkyPortalGroup.add(this.jailSkyVoidRing);
+
+    this.root.add(this.jailSkyPortalGroup);
+  }
+
+  public getTileWorldCenter(tileIndex: number): THREE.Vector3 {
+    const idx = ((tileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    const tile = BOARD_TILES[idx];
+    return new THREE.Vector3(tile.gridX * TILE_SPACING, 0.62, tile.gridZ * TILE_SPACING);
+  }
+
+  public showJailSkyEndPortal(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.jailSkyPortalGroup) {
+        resolve();
+        return;
+      }
+      const jailTile = BOARD_TILES[10];
+      const worldX = jailTile.gridX * TILE_SPACING;
+      const worldZ = jailTile.gridZ * TILE_SPACING;
+      this.jailSkyPortalGroup.position.set(worldX, 4.6, worldZ);
+      this.jailSkyPortalGroup.visible = true;
+      this.jailSkyPortalGroup.scale.set(0.01, 0.01, 0.01);
+
+      this.particles.spawnBuildingPopSparkles(new THREE.Vector3(worldX, 4.4, worldZ), '#a855f7');
+      this.particles.spawnBuildingPopSparkles(new THREE.Vector3(worldX, 4.4, worldZ), '#34d399');
+
+      gsap.killTweensOf(this.jailSkyPortalGroup.scale);
+      gsap.to(this.jailSkyPortalGroup.scale, {
+        x: 1,
+        y: 1,
+        z: 1,
+        duration: 0.38,
+        ease: 'back.out(2.1)',
+        onComplete: () => resolve()
+      });
+    });
+  }
+
+  public hideJailSkyEndPortal(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.jailSkyPortalGroup || !this.jailSkyPortalGroup.visible) {
+        resolve();
+        return;
+      }
+      gsap.killTweensOf(this.jailSkyPortalGroup.scale);
+      gsap.to(this.jailSkyPortalGroup.scale, {
+        x: 0.01,
+        y: 0.01,
+        z: 0.01,
+        duration: 0.32,
+        ease: 'power2.in',
+        onComplete: () => {
+          if (this.jailSkyPortalGroup) {
+            this.jailSkyPortalGroup.visible = false;
+          }
+          resolve();
+        }
+      });
+    });
   }
 
   /**
@@ -1970,6 +2223,9 @@ export class IslandBoard3D {
     for (const voidTex of this.endPortalVoidTextures) {
       voidTex.offset.x = Math.sin(elapsedTime * 0.5) * 0.25;
       voidTex.offset.y = elapsedTime * 0.15;
+    }
+    if (this.jailSkyPortalGroup && this.jailSkyPortalGroup.visible && this.jailSkyVoidRing) {
+      this.jailSkyVoidRing.rotation.y = -elapsedTime * 3.2;
     }
     for (const vortexTex of this.netherPortalTextures) {
       vortexTex.offset.x = Math.sin(elapsedTime * 2.0) * 0.2;

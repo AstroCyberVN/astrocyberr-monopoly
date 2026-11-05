@@ -317,15 +317,39 @@ export const CHEST_CARDS: ChestCard[] = [
     description: 'Nhận cổ tức thừa kế từ thương hội gia tộc +$150.',
     goldDelta: 150
   },
+  {
+    id: 'kv_dinh_doc_lap',
+    deck: 'KHI_VAN',
+    title: '🏛️ Chuyên Cơ Tham Quan Dinh Độc Lập!',
+    description: 'Bay một vòng quanh đảo tới thẳng Dinh Độc Lập (#39)! Nếu bay qua Khởi Hành nhận +$200.',
+    moveToTile: 39,
+    goldDelta: 0
+  },
 
   // ======================== BỘ THẺ CƠ HỘI (Ô #7, #22, #36) ========================
   {
     id: 'ch_go_start',
     deck: 'CO_HOI',
     title: '🚩 Tiến Về Bến Nhà Rồng (Khởi Hành)!',
-    description: 'Đi thẳng về Ô Khởi Hành (#0) và lĩnh ngay +$200 tiền lương!',
+    description: 'Bay một vòng về Ô Khởi Hành (#0) và lĩnh ngay +$200 tiền lương!',
     moveToTile: 0,
     goldDelta: 200
+  },
+  {
+    id: 'ch_saigon_station',
+    deck: 'CO_HOI',
+    title: '🚆 Chuyến Tàu Tốc Hành Tới Ga Sài Gòn!',
+    description: 'Bay dọc theo bàn cờ tới Ga Sài Gòn (#35)! Nếu đi qua Khởi Hành nhận +$200.',
+    moveToTile: 35,
+    goldDelta: 0
+  },
+  {
+    id: 'ch_vung_tau',
+    deck: 'CO_HOI',
+    title: '🏖️ Kỳ Nghỉ Dưỡng Bãi Sau Vũng Tàu!',
+    description: 'Bay lượn dọc bờ biển tới Vũng Tàu (#26)! Nếu đi qua Khởi Hành nhận +$200.',
+    moveToTile: 26,
+    goldDelta: 0
   },
   {
     id: 'ch_forward_3',

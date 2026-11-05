@@ -23,6 +23,7 @@ import { IslandBoard3D } from './scene/IslandBoard3D';
 import { ChibiCharacters3D } from './scene/ChibiCharacters3D';
 import { Dice3D } from './scene/Dice3D';
 import { CameraDirector } from './scene/CameraDirector';
+import { PixelFxEngine } from './fx/PixelFxEngine';
 import { RoomSync } from './net/RoomSync';
 import {
   fetchAndApplyMonopolyCloudConfig,
@@ -126,6 +127,7 @@ class AstroCyberrMonopolyApp {
   private renderer!: THREE.WebGLRenderer;
   private cameraDirector!: CameraDirector;
   private particles!: ParticleSystem3D;
+  private pixelFx!: PixelFxEngine;
   private islandBoard!: IslandBoard3D;
   private characters3D!: ChibiCharacters3D;
   private dice3D!: Dice3D;
@@ -213,30 +215,25 @@ class AstroCyberrMonopolyApp {
       this.renderer.domElement
     );
     this.particles = new ParticleSystem3D(this.scene);
+    this.pixelFx = new PixelFxEngine(this.scene);
     this.islandBoard = new IslandBoard3D(this.scene, this.particles);
     this.characters3D = new ChibiCharacters3D(this.scene, this.particles);
     this.dice3D = new Dice3D(this.scene);
-
-    this.cameraDirector.onFollowChange(() => {
-      this.updateCameraFollowBanner();
-      this.renderHUD();
-    });
 
     window.addEventListener('resize', () => {
       this.cameraDirector.resize(window.innerWidth, window.innerHeight);
       this.renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // FIX-03: Record pointerdown coords so dragging to rotate camera never triggers an accidental tile/character click!
+    // FIX-03: Record pointerdown coords so dragging to rotate camera never triggers an accidental tile click!
     this.renderer.domElement.addEventListener('pointerdown', (ev) => {
       this.pointerDownClientX = ev.clientX;
       this.pointerDownClientY = ev.clientY;
     });
 
     // Click on 3D Scene:
-    // 1. If clicking a 3D Character Model -> Lock camera to follow that character (with free 360° rotation)!
-    // 2. If clicking Central Beacon / Courtyard Trees -> Trigger Whimsy Easter Egg (UPG-05)!
-    // 3. If clicking a 3D Tile -> Either trigger active3DTilePickerHandler (UX-03) or Elevate & Tilt tile toward camera!
+    // 1. If clicking Central Beacon / Courtyard Trees -> Trigger Whimsy Easter Egg (UPG-05)!
+    // 2. If clicking a 3D Tile -> Either trigger active3DTilePickerHandler (UX-03) or Elevate & Tilt tile toward camera!
     this.renderer.domElement.addEventListener('click', async (ev) => {
       const dragDist = Math.hypot(
         ev.clientX - this.pointerDownClientX,
@@ -249,29 +246,7 @@ class AstroCyberrMonopolyApp {
       this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
       this.raycaster.setFromCamera(this.pointer, this.cameraDirector.camera);
 
-      // 1. Check if user clicked on a 3D Chibi Character Model first
-      const charHits = this.raycaster.intersectObjects(
-        this.characters3D.getParentGroup().children,
-        true
-      );
-      for (const hit of charHits) {
-        let obj: THREE.Object3D | null = hit.object;
-        while (obj) {
-          if (obj.userData?.characterId) {
-            const clickedCharId = obj.userData.characterId as CharacterId;
-            const targetPlayer = this.engine
-              .getPlayers()
-              .find((p) => p.characterId === clickedCharId && !p.bankrupt);
-            if (targetPlayer) {
-              this.selectCharacterToFollow(targetPlayer.characterId);
-              return;
-            }
-          }
-          obj = obj.parent;
-        }
-      }
-
-      // 2. UPG-05: Check if user clicked on Whimsy Easter Eggs (Beacon or Courtyard Trees)
+      // 1. UPG-05: Check if user clicked on Whimsy Easter Eggs (Beacon or Courtyard Trees)
       const whimsyHits = this.raycaster.intersectObjects(
         this.islandBoard.getWhimsyClickables(),
         true
@@ -280,6 +255,7 @@ class AstroCyberrMonopolyApp {
         const hitObj = whimsyHits[0].object;
         if (hitObj.userData?.whimsyType === 'BEACON') {
           const beamColor = this.islandBoard.cycleBeaconBeamColor();
+          this.pixelFx.spawnLevelUpPillar(new THREE.Vector3(0, 1.4, 0), 4);
           this.engine.addLog(`🌈 Tháp Beacon trung tâm đổi sang ánh sáng ${beamColor.name}!`);
           this.renderHUD();
           return;
@@ -290,7 +266,7 @@ class AstroCyberrMonopolyApp {
         }
       }
 
-      // 3. Otherwise check if user clicked on a 3D Board Tile
+      // 2. Otherwise check if user clicked on a 3D Board Tile
       const hits = this.raycaster.intersectObjects(this.islandBoard.root.children, true);
       let clickedTileIdx: number | null = null;
       for (const hit of hits) {
@@ -337,83 +313,6 @@ class AstroCyberrMonopolyApp {
     });
   }
 
-  private selectCharacterToFollow(charId: CharacterId): void {
-    const players = this.engine.getPlayers();
-    const targetIdx = players.findIndex((p) => p.characterId === charId && !p.bankrupt);
-    if (targetIdx < 0) return;
-
-    const targetPlayer = players[targetIdx];
-    const charPos = this.characters3D.getCharacterWorldPosition(targetPlayer.characterId);
-    const tileCfg = this.engine.getTileConfig(targetPlayer.position);
-
-    document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
-    this.islandBoard.highlightTile(null);
-
-    this.cameraDirector.setFollowedCharacter(targetPlayer.characterId, charPos);
-    if (this.cameraDirector.getCameraStyle() === 'LIVE') {
-      this.cameraDirector.focusActivePlayerLive(
-        charPos,
-        tileCfg.outwardRotationY,
-        this.gameSpeedMultiplier
-      );
-    }
-    this.updateCameraFollowBanner();
-    this.renderHUD();
-  }
-
-  /**
-   * Cycles backward (dir = -1, Key 'A') or forward (dir = +1, Key 'D') through active non-bankrupt characters!
-   */
-  private cycleFollowedCharacter(dir: -1 | 1): void {
-    const activePlayers = this.engine.getPlayers().filter((p) => !p.bankrupt);
-    if (activePlayers.length === 0) return;
-
-    const currentFollowedId =
-      this.cameraDirector.getFollowedCharacterId() || this.engine.getCurrentPlayer().characterId;
-    const curIdx = activePlayers.findIndex((p) => p.characterId === currentFollowedId);
-    const nextIdx =
-      curIdx < 0
-        ? 0
-        : (curIdx + dir + activePlayers.length) % activePlayers.length;
-
-    this.selectCharacterToFollow(activePlayers[nextIdx].characterId);
-  }
-
-  private updateCameraFollowBanner(): void {
-    const banner = document.getElementById('camera-follow-banner')!;
-    const dot = document.getElementById('follow-banner-dot')!;
-    const text = document.getElementById('follow-banner-text')!;
-
-    const style = this.cameraDirector.getCameraStyle();
-    const followedCharId = this.cameraDirector.getFollowedCharacterId();
-
-    if (style === 'LIVE') {
-      const targetCharId = followedCharId || this.engine.getCurrentPlayer().characterId;
-      const targetPlayer =
-        this.engine.getPlayers().find((p) => p.characterId === targetCharId) ||
-        this.engine.getCurrentPlayer();
-      const tileCfg = this.engine.getTileConfig(targetPlayer.position);
-
-      banner.classList.remove('hidden');
-      dot.classList.remove('normal-follow');
-      text.textContent = `🔴 LIVE • Đang theo dõi: ${targetPlayer.name} — Ô #${targetPlayer.position} (${tileCfg.name})`;
-    } else if (followedCharId) {
-      const targetPlayer = this.engine
-        .getPlayers()
-        .find((p) => p.characterId === followedCharId);
-      if (targetPlayer && !targetPlayer.bankrupt) {
-        const tileCfg = this.engine.getTileConfig(targetPlayer.position);
-        banner.classList.remove('hidden');
-        dot.classList.add('normal-follow');
-        text.textContent = `🎯 FOLLOW 360° • ${targetPlayer.name} — Ô #${targetPlayer.position} (${tileCfg.name})`;
-      } else {
-        banner.classList.add('hidden');
-      }
-    } else {
-      banner.classList.add('hidden');
-    }
-  }
-
   private toggleCameraStyleQuick(): void {
     const btnCamNormal = document.getElementById('btn-cam-normal')!;
     const btnCamLive = document.getElementById('btn-cam-live')!;
@@ -427,7 +326,6 @@ class AstroCyberrMonopolyApp {
       btnCamLive.classList.remove('active');
       this.cameraDirector.setCameraStyle('NORMAL');
     }
-    this.updateCameraFollowBanner();
   }
 
   private bindUIEvents(): void {
@@ -441,14 +339,11 @@ class AstroCyberrMonopolyApp {
     const btnBgm = document.getElementById('btn-bgm-toggle')!;
     const sliderVolume = document.getElementById('slider-master-volume') as HTMLInputElement;
     const sliderSpeed = document.getElementById('slider-game-speed') as HTMLInputElement;
-    const btnFollowPrev = document.getElementById('btn-follow-prev')!;
-    const btnFollowNext = document.getElementById('btn-follow-next')!;
 
     btnCamNormal.addEventListener('click', () => {
       btnCamNormal.classList.add('active');
       btnCamLive.classList.remove('active');
       this.cameraDirector.setCameraStyle('NORMAL');
-      this.updateCameraFollowBanner();
     });
 
     btnCamLive.addEventListener('click', () => {
@@ -456,7 +351,6 @@ class AstroCyberrMonopolyApp {
       btnCamNormal.classList.remove('active');
       this.cameraDirector.setCameraStyle('LIVE');
       this.focusCurrentPlayerInLiveMode();
-      this.updateCameraFollowBanner();
     });
 
     btnCamReset.addEventListener('click', () => {
@@ -468,15 +362,7 @@ class AstroCyberrMonopolyApp {
         this.cameraDirector.setCameraStyle('NORMAL');
       }
       this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
-      this.updateCameraFollowBanner();
       this.renderHUD();
-    });
-
-    btnFollowPrev.addEventListener('click', () => {
-      this.cycleFollowedCharacter(-1);
-    });
-    btnFollowNext.addEventListener('click', () => {
-      this.cycleFollowedCharacter(1);
     });
 
     // Spacebar & Pointer Hold Power Charge Bar for Rolling Dice!
@@ -534,8 +420,7 @@ class AstroCyberrMonopolyApp {
 
     // Global Keyboard Shortcuts:
     // - F: Quick toggle Camera Normal <-> Live
-    // - A / D: Cycle backward / forward through followed characters
-    // - Space: Confirm Buy / Upgrade / Pay Rent / Bankruptcy / Skip 3s Delay / Hold to Roll Dice
+    // - Space: Confirm Buy / Upgrade / Pay Rent / Bankruptcy / Hold to Roll Dice
     // - Escape: Pass / Skip Buy / Close Tile Popup
     window.addEventListener('keydown', (e) => {
       if (
@@ -558,18 +443,6 @@ class AstroCyberrMonopolyApp {
       if ((e.key === 'f' || e.key === 'F') && !e.repeat) {
         e.preventDefault();
         this.toggleCameraStyleQuick();
-        return;
-      }
-
-      if ((e.key === 'a' || e.key === 'A') && !e.repeat) {
-        e.preventDefault();
-        this.cycleFollowedCharacter(-1);
-        return;
-      }
-
-      if ((e.key === 'd' || e.key === 'D') && !e.repeat) {
-        e.preventDefault();
-        this.cycleFollowedCharacter(1);
         return;
       }
 
@@ -672,10 +545,7 @@ class AstroCyberrMonopolyApp {
     document.getElementById('btn-close-tile-popup')!.addEventListener('click', () => {
       document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
       this.islandBoard.highlightTile(null);
-      if (
-        this.cameraDirector.getCameraStyle() === 'NORMAL' &&
-        !this.cameraDirector.getFollowedCharacterId()
-      ) {
+      if (this.cameraDirector.getCameraStyle() === 'NORMAL') {
         this.cameraDirector.resetToPanoramic(this.gameSpeedMultiplier);
       }
     });
@@ -701,10 +571,6 @@ class AstroCyberrMonopolyApp {
     const activeIdx = this.engine.getCurrentPlayerIndex();
     const standPos = this.islandBoard.getTileStandPosition(active.position, activeIdx);
     const tileCfg = this.engine.getTileConfig(active.position);
-    if (this.cameraDirector.getCameraStyle() === 'LIVE') {
-      this.cameraDirector.setFollowedCharacter(active.characterId, standPos);
-    }
-    this.updateCameraFollowBanner();
     return this.cameraDirector.focusActivePlayerLive(
       standPos,
       tileCfg.outwardRotationY,
@@ -777,55 +643,126 @@ class AstroCyberrMonopolyApp {
   }
 
   /**
-   * Shows the 3-second Skip Bar ONLY for Human Players (`!player.isBot`).
-   * Pressing Space or clicking the Skip button immediately skips the countdown!
+   * Executes the full 3-phase End Portal -> Overhead Sky Jail Portal Drop Cutscene:
+   * 1. Character is sucked down into the End Portal void at `originTileIdx` (with PixelFX vortex).
+   * 2. Camera transitions to Tile #10 (Nhà Tù Chí Hòa) and a 12-Frame End Portal opens in the sky (Y = 4.6) above #10.
+   * 3. Character drops straight down from the Sky End Portal onto the prison floor at #10 with heavy slam & PixelFX iron cage!
    */
-  private waitForHumanDiceSkipConfirmation(
-    d1: number,
-    d2: number,
-    total: number,
-    isDoubles: boolean
+  private async playEndPortalToSkyJailCutscene(
+    playerId: string,
+    playerSlot: number,
+    originTileIdx: number
   ): Promise<void> {
-    return new Promise((resolve) => {
-      const bar = document.getElementById('dice-fusion-confirm-bar')!;
-      const btnConfirm = document.getElementById('btn-confirm-move-now')!;
-      const secSpan = document.getElementById('fusion-countdown-sec')!;
-      const doublesTag = document.getElementById('fusion-doubles-tag')!;
+    const player = this.engine.getPlayerById(playerId);
+    const originPortalCenter = this.islandBoard.getTileWorldCenter(originTileIdx);
 
-      document.getElementById('fusion-d1')!.textContent = `${d1}`;
-      document.getElementById('fusion-d2')!.textContent = `${d2}`;
-      document.getElementById('fusion-total')!.textContent = `${total} BƯỚC`;
-      doublesTag.classList.toggle('hidden', !isDoubles);
+    // Phase 1: Suck character down into the End Portal void
+    this.pixelFx.spawnEndPortalVortexSuck(originPortalCenter);
+    await this.characters3D.animateEndPortalSuckIn(
+      player.characterId,
+      originPortalCenter,
+      this.gameSpeedMultiplier
+    );
 
-      let remaining = 3;
-      secSpan.textContent = `${remaining}`;
-      bar.classList.remove('hidden');
+    // Phase 2: Camera pans to Tile #10 while the 12-frame Sky End Portal opens above #10 (Y = 4.6)
+    const jailCfg = this.engine.getTileConfig(10);
+    const jailStandTf = this.islandBoard.getTileStandTransform(10, playerSlot);
+    const jailCenter = this.islandBoard.getTileWorldCenter(10);
+    const skyPortalPos = new THREE.Vector3(jailCenter.x, 4.6, jailCenter.z);
 
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        clearInterval(timer);
-        btnConfirm.removeEventListener('click', finish);
-        this.activeModalPrimaryAction = null;
-        bar.classList.add('hidden');
-        this.dice3D.clearFusionFX();
-        resolve();
-      };
+    await Promise.all([
+      this.cameraDirector.focusJailSkyPortalCutscene(jailCfg, this.gameSpeedMultiplier),
+      this.islandBoard.showJailSkyEndPortal()
+    ]);
 
-      btnConfirm.addEventListener('click', finish);
-      this.activeModalPrimaryAction = finish;
+    this.pixelFx.spawnEndPortalVortexSuck(new THREE.Vector3(jailCenter.x, 4.35, jailCenter.z));
 
-      const stepMs = Math.round(1000 / Math.max(1, this.gameSpeedMultiplier));
-      const timer = window.setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          finish();
-        } else {
-          secSpan.textContent = `${remaining}`;
-        }
-      }, stepMs);
-    });
+    // Phase 3: Drop character from the Overhead Sky End Portal straight down into #10 Nhà Tù Chí Hòa!
+    await this.characters3D.animateDropFromSkyPortalIntoJail(
+      player.characterId,
+      skyPortalPos,
+      jailStandTf,
+      jailCfg.outwardRotationY,
+      this.gameSpeedMultiplier,
+      (impactPos) => {
+        this.pixelFx.spawnJailChainsSlam(impactPos);
+        this.pixelFx.triggerHudCardPixelFx(player.id, 'JAIL');
+        this.pixelFx.triggerHitStop(0.065);
+        this.cameraDirector.triggerCameraShake(0.42, 0.34);
+        this.characters3D.playEmoteReaction(player.characterId, '🚓 Ở Tù Chí Hòa!', 'SAD');
+      }
+    );
+
+    await this.islandBoard.hideJailSkyEndPortal();
+    this.showBottomLeftTilePopup(10);
+    this.renderHUD();
+  }
+
+  /**
+   * Animates a high-altitude flight around the perimeter of the 40-tile island
+   * when a player draws a Khí Vận / Cơ Hội card that moves them (`moveToTile` or `stepDelta`).
+   */
+  private async playCardPerimeterFlight(
+    playerId: string,
+    playerSlot: number,
+    fromTileIdx: number,
+    toTileIdx: number,
+    direction: 'FORWARD' | 'BACKWARD',
+    deck: 'KHI_VAN' | 'CO_HOI'
+  ): Promise<void> {
+    const player = this.engine.getPlayerById(playerId);
+    const waypoints: Array<{
+      position: THREE.Vector3;
+      outwardRotY: number;
+      rotX: number;
+      rotZ: number;
+      scale: number;
+    }> = [];
+
+    const stepDir = direction === 'BACKWARD' ? -1 : 1;
+    let cur = ((fromTileIdx % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    const target = ((toTileIdx % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+
+    let guard = 0;
+    do {
+      cur = (cur + stepDir + BOARD_SIZE) % BOARD_SIZE;
+      const tf = this.islandBoard.getTileStandTransform(cur, playerSlot);
+      const cfg = this.engine.getTileConfig(cur);
+      waypoints.push({
+        position: tf.position,
+        outwardRotY: cfg.outwardRotationY,
+        rotX: tf.rotX,
+        rotZ: tf.rotZ,
+        scale: tf.scale
+      });
+      guard++;
+    } while (cur !== target && guard <= BOARD_SIZE);
+
+    this.islandBoard.showTargetTileBeacon(target);
+    const trailPalette = deck === 'KHI_VAN' ? 'gold' : 'arcane';
+
+    await this.characters3D.animatePerimeterFlightToTile(
+      player.characterId,
+      waypoints,
+      this.gameSpeedMultiplier,
+      (curWorldPos, stepIdx) => {
+        const wp = waypoints[Math.min(waypoints.length - 1, Math.max(0, stepIdx - 1))];
+        this.cameraDirector.followCharacterStep(curWorldPos, wp?.outwardRotY ?? 0);
+        this.pixelFx.spawnFlightTrailSparkle(curWorldPos, trailPalette);
+      }
+    );
+
+    this.islandBoard.hideTargetTileBeacon();
+    const landedPos = this.islandBoard.getTileStandPosition(target, playerSlot);
+    const landedCfg = this.engine.getTileConfig(target);
+    this.pixelFx.spawnChestCardBurst(landedPos, deck);
+    await this.cameraDirector.focusTileEventCloseUp(
+      landedPos,
+      landedCfg.outwardRotationY,
+      this.gameSpeedMultiplier
+    );
+    this.showBottomLeftTilePopup(target);
+    this.renderHUD();
   }
 
   /**
@@ -848,6 +785,7 @@ class AstroCyberrMonopolyApp {
     if (!coinEl || !cardEl) return;
 
     const isGain = delta > 0;
+    this.pixelFx.triggerHudCardPixelFx(playerId, isGain ? 'GAIN' : 'LOSS');
     cardEl.classList.add(isGain ? 'flash-gain' : 'flash-loss');
     coinEl.classList.add(isGain ? 'counting-up' : 'counting-down');
 
@@ -902,6 +840,8 @@ class AstroCyberrMonopolyApp {
 
       payerCardEl?.classList.add('flash-loss');
       ownerCardEl?.classList.add('flash-gain');
+      this.pixelFx.triggerHudCardPixelFx(payerId, 'LOSS');
+      this.pixelFx.triggerHudCardPixelFx(ownerId, 'GAIN');
       payerCoinEl.classList.add('counting-down');
       ownerCoinEl.classList.add('counting-up');
 
@@ -1179,6 +1119,7 @@ class AstroCyberrMonopolyApp {
       }
     }
 
+    const preRollTileIdx = player.position;
     if (!alreadyRolledViaJailEscape) {
       const rollRes = this.engine.rollDice();
       d1 = rollRes.d1;
@@ -1187,35 +1128,25 @@ class AstroCyberrMonopolyApp {
       isDoubles = rollRes.isDoubles;
       sentToJailByTripleDoubles = Boolean(rollRes.sentToJailByTripleDoubles);
       await this.dice3D.animateRollAndFuseTotal(d1, d2, throwPower, this.gameSpeedMultiplier);
+      this.pixelFx.spawnDiceImpactBurst(new THREE.Vector3(0, 0.95, 0), isDoubles);
+      if (isDoubles) {
+        this.pixelFx.triggerHitStop(0.055);
+        this.cameraDirector.triggerCameraShake(0.28, 0.24);
+      }
 
       document.getElementById('dice-last-result')!.textContent =
         `🎲 ${d1}+${d2}=${total}${isDoubles ? ' (ĐÔI!)' : ''}`;
       this.renderHUD();
+    } else {
+      this.pixelFx.spawnDiceImpactBurst(new THREE.Vector3(0, 0.95, 0), true);
     }
 
-    // Wikipedia Monopoly Rule: Rolling 3 consecutive doubles sends player directly to #10 Jail (Đảo Cách Ly)!
+    // Wikipedia Monopoly Rule: Rolling 3 consecutive doubles sends player directly to #10 Jail via End Portal -> Sky Jail drop!
     if (sentToJailByTripleDoubles) {
       this.dice3D.clearFusionFX();
       soundManager.playPayRent();
-      const jailTf = this.islandBoard.getTileStandTransform(10, playerIdx);
-      const jailCfg = this.engine.getTileConfig(10);
-      this.characters3D.placeCharacterAt(
-        player.characterId,
-        jailTf.position,
-        jailCfg.outwardRotationY,
-        jailTf.rotX,
-        jailTf.rotZ,
-        jailTf.scale
-      );
-      this.particles.spawnEndermanPortalParticles(jailTf.position);
-      await this.cameraDirector.focusTileEventCloseUp(
-        jailTf.position,
-        jailCfg.outwardRotationY,
-        this.gameSpeedMultiplier
-      );
-      this.showBottomLeftTilePopup(10);
-      this.renderHUD();
-      await this.delay(650 / this.gameSpeedMultiplier);
+      await this.playEndPortalToSkyJailCutscene(player.id, playerIdx, preRollTileIdx);
+      await this.delay(450 / this.gameSpeedMultiplier);
       this.advanceToNextTurn();
       return;
     }
@@ -1224,13 +1155,9 @@ class AstroCyberrMonopolyApp {
     const targetTileIdx = (player.position + total) % BOARD_SIZE;
     this.islandBoard.showTargetTileBeacon(targetTileIdx);
 
-    // 3. ONLY show the 3-second Skip Bar for Human Players! AI moves immediately without delay!
-    if (!player.isBot) {
-      await this.waitForHumanDiceSkipConfirmation(d1, d2, total, isDoubles);
-    } else {
-      await this.delay(160 / this.gameSpeedMultiplier);
-      this.dice3D.clearFusionFX();
-    }
+    // 3. No 3s delay — clear dice fusion FX after a brief beat and move immediately!
+    await this.delay(180 / this.gameSpeedMultiplier);
+    this.dice3D.clearFusionFX();
 
     // 4. LIVE Mode Stage 2: 3rd-Person Chase Cam with Smooth Corner Banking!
     await this.focusCurrentPlayerInLiveMode();
@@ -1243,7 +1170,6 @@ class AstroCyberrMonopolyApp {
       const toTileCfg = this.engine.getTileConfig(newPosition);
 
       this.cameraDirector.followCharacterStep(toTf.position, toTileCfg.outwardRotationY);
-      this.updateCameraFollowBanner();
 
       await this.characters3D.animateStepToTile(
         player.characterId,
@@ -1283,7 +1209,7 @@ class AstroCyberrMonopolyApp {
 
     // 6. Resolve tile landing (with deferRentPayment: true so rent waits for confirmation!)
     this.showBottomLeftTilePopup(player.position);
-    const resolution = this.engine.resolveTileLanding(player.id, { deferRentPayment: true });
+    let resolution = this.engine.resolveTileLanding(player.id, { deferRentPayment: true });
     this.syncAllBuildingsToBoard();
 
     if (resolution.action === 'PAID_ROYAL_TAX') {
@@ -1299,20 +1225,17 @@ class AstroCyberrMonopolyApp {
       }
     } else if (resolution.action === 'SENT_TO_JAIL') {
       soundManager.playPayRent();
-      this.syncAllCharactersToBoard();
-      const jailTf = this.islandBoard.getTileStandTransform(10, playerIdx);
-      const jailCfg = this.engine.getTileConfig(10);
-      this.particles.spawnEndermanPortalParticles(jailTf.position);
-      await this.cameraDirector.focusTileEventCloseUp(
-        jailTf.position,
-        jailCfg.outwardRotationY,
-        this.gameSpeedMultiplier
+      await this.playEndPortalToSkyJailCutscene(
+        player.id,
+        playerIdx,
+        resolution.movedFromTile ?? 30
       );
-      this.showBottomLeftTilePopup(10);
-      this.renderHUD();
     } else if (resolution.action === 'CHEST_DRAWN') {
       soundManager.playCoinChime();
-      this.syncAllCharactersToBoard();
+      const deckType = resolution.chestCard?.deck ?? 'CO_HOI';
+      this.pixelFx.spawnChestCardBurst(landedPos, deckType);
+      this.pixelFx.triggerHudCardPixelFx(player.id, 'CARD');
+
       if (resolution.amount) {
         this.animateSinglePlayerCoinDeltaOnHUD(
           player.id,
@@ -1322,6 +1245,51 @@ class AstroCyberrMonopolyApp {
       } else {
         this.renderHUD();
       }
+
+      if (resolution.sentToJailByCard) {
+        await this.playEndPortalToSkyJailCutscene(
+          player.id,
+          playerIdx,
+          resolution.movedFromTile ?? resolution.tileIndex
+        );
+      } else if (
+        typeof resolution.movedFromTile === 'number' &&
+        typeof resolution.movedToTile === 'number'
+      ) {
+        await this.playCardPerimeterFlight(
+          player.id,
+          playerIdx,
+          resolution.movedFromTile,
+          resolution.movedToTile,
+          resolution.moveDirection ?? 'FORWARD',
+          deckType
+        );
+        // If the card flew the player to a property/railroad/utility/tax/portal tile (other than #0 Start),
+        // evaluate landing on that destination tile!
+        if (resolution.movedToTile !== 0 && !player.bankrupt) {
+          const destRes = this.engine.resolveTileLanding(player.id, { deferRentPayment: true });
+          if (destRes.action === 'SENT_TO_JAIL') {
+            await this.playEndPortalToSkyJailCutscene(player.id, playerIdx, resolution.movedToTile);
+          } else if (
+            destRes.action === 'CAN_BUY_PROPERTY' ||
+            destRes.action === 'CAN_UPGRADE_PROPERTY' ||
+            destRes.action === 'PAID_RENT' ||
+            destRes.action === 'PAID_ROYAL_TAX'
+          ) {
+            if (destRes.action === 'PAID_ROYAL_TAX') {
+              soundManager.playPayRent();
+              this.animateSinglePlayerCoinDeltaOnHUD(
+                player.id,
+                destRes.payerPrevGold ?? player.gold + (destRes.amount ?? 0),
+                player.gold
+              );
+            } else {
+              resolution = destRes;
+            }
+          }
+        }
+      }
+
       if (player.bankrupt) {
         this.characters3D.eliminateCharacter(player.characterId);
         this.syncAllBuildingsToBoard();
@@ -1398,6 +1366,10 @@ class AstroCyberrMonopolyApp {
           bot.color,
           state.festivalMultiplier
         );
+        this.pixelFx.spawnLevelUpPillar(
+          this.islandBoard.getTileWorldCenter(decision.tileIndex),
+          state.level
+        );
         this.animateSinglePlayerCoinDeltaOnHUD(botId, prevGold, bot.gold);
       }
     } else if (decision.type === 'UPGRADE_PROPERTY') {
@@ -1410,6 +1382,10 @@ class AstroCyberrMonopolyApp {
           state.level,
           bot.color,
           state.festivalMultiplier
+        );
+        this.pixelFx.spawnLevelUpPillar(
+          this.islandBoard.getTileWorldCenter(decision.tileIndex),
+          state.level
         );
         this.animateSinglePlayerCoinDeltaOnHUD(botId, prevGold, bot.gold);
       }
@@ -1710,6 +1686,10 @@ class AstroCyberrMonopolyApp {
             player.color,
             st.festivalMultiplier
           );
+          this.pixelFx.spawnLevelUpPillar(
+            this.islandBoard.getTileWorldCenter(res.tileIndex),
+            st.level
+          );
           this.showBottomLeftTilePopup(res.tileIndex);
           this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
         }
@@ -1761,6 +1741,10 @@ class AstroCyberrMonopolyApp {
             st.level,
             player.color,
             st.festivalMultiplier
+          );
+          this.pixelFx.spawnLevelUpPillar(
+            this.islandBoard.getTileWorldCenter(res.tileIndex),
+            st.level
           );
           this.showBottomLeftTilePopup(res.tileIndex);
           this.animateSinglePlayerCoinDeltaOnHUD(playerId, prevGold, player.gold);
@@ -1975,13 +1959,42 @@ class AstroCyberrMonopolyApp {
       }
     }
 
+    const chestCard = res.chestCard;
+    const isKhiVan = chestCard?.deck === 'KHI_VAN';
+    const routePillHtml =
+      res.action === 'CHEST_DRAWN' &&
+      typeof res.movedFromTile === 'number' &&
+      typeof res.movedToTile === 'number'
+        ? `<div class="chest-card-route-pill">✈️ Đã bay 1 vòng bàn cờ: Ô #${res.movedFromTile} ➡️ Ô #${res.movedToTile} (${this.engine.getTileConfig(res.movedToTile).name})</div>`
+        : res.sentToJailByCard
+          ? `<div class="chest-card-route-pill">🌌 Đã bị hút vào Cổng The End ➡️ Rơi xuống Nhà Tù Chí Hòa (#10)</div>`
+          : '';
+
+    const chestFlipStageHtml =
+      res.action === 'CHEST_DRAWN' && chestCard
+        ? `
+          <div class="chest-card-flip-stage">
+            <div class="chest-card-flip-inner ${isKhiVan ? 'chest-deck-khi-van' : 'chest-deck-co-hoi'}">
+              <div class="chest-card-emblem">${isKhiVan ? '🧧' : '⚡'}</div>
+              <div style="font-size:13px;font-weight:900;color:#fde68a;margin-bottom:4px">
+                ${chestCard.title}
+              </div>
+              <div style="font-size:12px;color:#e2e8f0;line-height:1.45">
+                ${chestCard.description}
+              </div>
+              ${routePillHtml}
+            </div>
+          </div>
+        `
+        : '';
+
     inner.innerHTML = `
       <span class="action-card-badge" style="background:${tileCfg.colorHex};color:#0f172a">
         ${tileCfg.icon} Ô #${tileCfg.index} • ${tileCfg.name}
       </span>
       <h3 class="action-card-title">${
         res.action === 'CHEST_DRAWN'
-          ? res.chestCard?.deck === 'KHI_VAN'
+          ? isKhiVan
             ? '🧧 Thẻ Khí Vận Việt Nam!'
             : '⚡ Thẻ Cơ Hội Việt Nam!'
           : res.action === 'JUST_VISITING_JAIL'
@@ -1992,6 +2005,7 @@ class AstroCyberrMonopolyApp {
                 ? '🏝️ Tạm Giữ Tại Đảo Cách Ly (Mất 1 Lượt)!'
                 : tileCfg.name
       }</h3>
+      ${chestFlipStageHtml}
       <p class="action-card-desc">${res.message}</p>
       <div class="action-btn-group">
         <button id="act-btn-continue" class="action-btn action-btn-buy">
@@ -2333,7 +2347,6 @@ class AstroCyberrMonopolyApp {
 
   private renderHUD(): void {
     const active = this.engine.getCurrentPlayer();
-    const followedCharId = this.cameraDirector?.getFollowedCharacterId() ?? null;
 
     document.getElementById('round-counter')!.textContent = `VÒNG ${this.engine.getRound()}`;
     document.getElementById('active-player-banner')!.textContent =
@@ -2352,7 +2365,6 @@ class AstroCyberrMonopolyApp {
       .getPlayers()
       .map((p) => {
         const isCurrent = p.id === active.id && !p.bankrupt;
-        const isFollowed = followedCharId === p.characterId && !p.bankrupt;
         const charCfg = CHARACTER_CONFIGS.find((c) => c.id === p.characterId);
 
         const statusPills: string[] = [];
@@ -2379,9 +2391,6 @@ class AstroCyberrMonopolyApp {
               `<span class="status-pill status-pill-skip">🏝️ Mất ${p.skipTurns} lượt</span>`
             );
           }
-          if (isFollowed) {
-            statusPills.push(`<span class="status-pill status-pill-followed">🎯 ĐANG FOLLOW</span>`);
-          }
         }
 
         // UX-02: 8 Color Group Ownership Dots (lights up when owning at least 1 tile; gold glow when Monopoly set completed!)
@@ -2393,10 +2402,10 @@ class AstroCyberrMonopolyApp {
 
         return `
           <div
-            class="player-rect-card ${isCurrent ? 'active-turn' : ''} ${p.bankrupt ? 'bankrupt' : ''} ${isFollowed ? 'followed-target' : ''}"
+            class="player-rect-card ${isCurrent ? 'active-turn' : ''} ${p.bankrupt ? 'bankrupt' : ''}"
             data-player-card-id="${p.id}"
             data-player-char-id="${p.characterId}"
-            title="Click để Camera theo dõi ${p.name} (Hoặc bấm phím A / D) • ${charCfg?.passiveDescription ?? ''}"
+            title="${p.name} • ${charCfg?.passiveDescription ?? ''}"
           >
             ${isCurrent ? '<span class="active-turn-pill">▶ ĐANG ĐI</span>' : ''}
             <canvas
@@ -2426,16 +2435,6 @@ class AstroCyberrMonopolyApp {
         const charId = canvas.dataset.charAvatar as CharacterId;
         drawCharacterOnGrassBlockAvatar(canvas, charId);
       });
-
-    // Clicking any player card in the left sidebar follows that character!
-    sidebar.querySelectorAll<HTMLElement>('.player-rect-card').forEach((card) => {
-      card.addEventListener('click', () => {
-        const charId = card.dataset.playerCharId as CharacterId;
-        if (charId) {
-          this.selectCharacterToFollow(charId);
-        }
-      });
-    });
 
     const logContainer = document.getElementById('event-log-list')!;
     logContainer.innerHTML = this.engine
@@ -2519,12 +2518,13 @@ class AstroCyberrMonopolyApp {
       this.syncIdleCharactersToElevatedTiles();
       this.characters3D.updateIdle(elapsed);
       this.particles.update(dt);
+      this.pixelFx.update(dt);
 
-      const followedCharId = this.cameraDirector.getFollowedCharacterId();
-      const followedPos = followedCharId
-        ? this.characters3D.getCharacterWorldPosition(followedCharId)
+      const activePlayer = this.engine.getCurrentPlayer();
+      const activePos = activePlayer
+        ? this.characters3D.getCharacterWorldPosition(activePlayer.characterId)
         : undefined;
-      this.cameraDirector.update(dt, followedPos);
+      this.cameraDirector.update(dt, activePos);
 
       this.renderer.render(this.scene, this.cameraDirector.camera);
     };

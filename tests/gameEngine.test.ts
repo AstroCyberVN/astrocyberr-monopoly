@@ -304,14 +304,27 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(p2.gold).toBe(p1BeforeBirthday - 25);
     expect(p3.gold).toBe(p1BeforeBirthday - 25);
 
-    // 3. Test Cơ Hội card "Tiến Lên 3 Bước" (+3 steps) and "Lùi Lại 3 Bước" (-3 steps)
+    // 3. Test Cơ Hội card "Tiến Lên 3 Bước" (+3 steps), "Lùi Lại 3 Bước" (-3 steps), and "Hội Nghị Dinh Độc Lập" (#39)
     p0.position = 7;
-    engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_forward_3' });
+    const fwdRes = engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_forward_3' });
     expect(p0.position).toBe(10);
+    expect(fwdRes.movedFromTile).toBe(7);
+    expect(fwdRes.movedToTile).toBe(10);
+    expect(fwdRes.moveDirection).toBe('FORWARD');
 
     p0.position = 22;
-    engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_back_3' });
+    const backRes = engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_back_3' });
     expect(p0.position).toBe(19);
+    expect(backRes.movedFromTile).toBe(22);
+    expect(backRes.movedToTile).toBe(19);
+    expect(backRes.moveDirection).toBe('BACKWARD');
+
+    p0.position = 17;
+    const dinhRes = engine.resolveTileLanding(p0.id, { forcedCardId: 'kv_dinh_doc_lap' });
+    expect(p0.position).toBe(39);
+    expect(dinhRes.movedFromTile).toBe(17);
+    expect(dinhRes.movedToTile).toBe(39);
+    expect(dinhRes.moveDirection).toBe('FORWARD');
 
     // 4. Test "Thẻ Ra Tù Miễn Phí" & "Đi Thẳng Vào Tù" + 3 Jail Escape Methods
     p0.position = 17;
@@ -319,9 +332,12 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(p0.jailFreeCards).toBe(1);
 
     p0.position = 36;
-    engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_go_to_jail' });
+    const jailCardRes = engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_go_to_jail' });
     expect(p0.position).toBe(10);
     expect(p0.inJail).toBe(true);
+    expect(jailCardRes.sentToJailByCard).toBe(true);
+    expect(jailCardRes.movedFromTile).toBe(36);
+    expect(jailCardRes.movedToTile).toBe(10);
 
     // Escape Method A: Use Free Jail Card
     const cardEscape = engine.useJailFreeCard(p0.id);
