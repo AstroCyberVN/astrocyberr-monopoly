@@ -2,347 +2,680 @@ import './styles/admin.css';
 import {
   BOARD_SIZE,
   BOARD_TILES,
+  BoardColorGroup,
   CHARACTER_CONFIGS,
   CHEST_CARDS,
-  ColorGroupId,
+  ChestDeckType,
   GAME_RULES_CONFIG,
-  TileType,
-  getExportableTilesSpecArray,
-  updateBoardTileConfigInPlace
+  TileType
 } from './core/boardData';
 import {
-  ALLOWED_ADMIN_EMAILS,
-  MonopolyCloudRow,
-  applyCloudConfigToRuntime,
+  applyCloudConfigToMemory,
   fetchAndApplyMonopolyCloudConfig,
   isAuthorizedAdminEmail,
-  saveMonopolyCloudConfigToSupabase,
+  isSupabaseConfigured,
+  MonopolyCloudConfigRow,
+  resetMonopolyConfigToFactoryDefault,
+  saveMonopolyCloudConfig,
   subscribeMonopolyCloudConfigRealtime,
   supabase
 } from './lib/supabaseConfigSync';
+import { escapeHtml, sanitizeColorHex } from './utils/security';
 
-class MonopolyAdminConsole {
+class MonopolyAdminStudio {
   private selectedTileIndex = 0;
-  private tileSearchQuery = '';
-  private tileTypeFilter = 'ALL';
-  private toastTimer: number | null = null;
-  private activeAdminEmail: string | null = null;
-  private isHandlingAuth = false;
-  private unsubscribeRealtime: (() => void) | null = null;
+  private currentUserEmail: string | null = null;
+  private searchQuery = '';
+  private typeFilter = 'ALL';
 
   constructor() {
-    this.bindAuthEvents();
+    this.initAuthFlow();
     this.bindDashboardEvents();
-    this.initAuthSessionCheck();
   }
 
-  private showAuthError(message: string): void {
-    const errEl = document.getElementById('admin-auth-error')!;
-    errEl.textContent = message;
-    errEl.classList.remove('hidden');
-  }
+  private async initAuthFlow(): Promise<void> {
+    const btnLogin = document.getElementById('btn-google-login')!;
+    const btnAuthSignout = document.getElementById('btn-auth-signout')!;
 
-  private hideAuthError(): void {
-    const errEl = document.getElementById('admin-auth-error')!;
-    errEl.textContent = '';
-    errEl.classList.add('hidden');
-  }
-
-  private showToast(message: string, isError = false): void {
-    const toast = document.getElementById('admin-toast')!;
-    toast.textContent = message;
-    toast.classList.toggle('error', isError);
-    toast.classList.remove('hidden');
-    if (this.toastTimer !== null) {
-      window.clearTimeout(this.toastTimer);
-    }
-    this.toastTimer = window.setTimeout(() => {
-      toast.classList.add('hidden');
-    }, 4500);
-  }
-
-  private bindAuthEvents(): void {
-    const btnGoogle = document.getElementById('btn-google-login')!;
-    btnGoogle.addEventListener('click', async () => {
-      this.hideAuthError();
-      const redirectUrl = `${window.location.origin}/admin`;
+    btnLogin.addEventListener('click', async () => {
+      if (!supabase) {
+        this.showToast(
+          'Đang chạy chế độ Cục bộ (Offline Admin) vì chưa cấu hình VITE_SUPABASE_URL trong .env.',
+          false
+        );
+        this.currentUserEmail = 'local-admin@astrocyberr.dev';
+        await this.enterAuthorizedDashboard();
+        return;
+      }
+      const redirectTo = `${window.location.origin}/admin/`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: redirectUrl,
+          redirectTo,
           queryParams: {
             prompt: 'select_account'
           }
         }
       });
       if (error) {
-        this.showAuthError(`❌ Không thể khởi tạo Google OAuth: ${error.message}`);
+        this.showAuthError(`Lỗi khởi tạo Google OAuth: ${error.message}`);
       }
     });
 
-    const btnSignOut = document.getElementById('btn-sign-out')!;
-    btnSignOut.addEventListener('click', async () => {
-      await supabase.auth.signOut();
-      this.switchToAuthScreen();
+    btnAuthSignout.addEventListener('click', async () => {
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+      window.location.reload();
     });
-  }
 
-  private async initAuthSessionCheck(): Promise<void> {
-    const loadingEl = document.getElementById('admin-auth-loading')!;
-    const btnGoogle = document.getElementById('btn-google-login')!;
+    if (!isSupabaseConfigured || !supabase) {
+      // Allow local offline admin editing when .env is not configured in local dev
+      this.currentUserEmail = 'local-admin@astrocyberr.dev';
+      await this.enterAuthorizedDashboard();
+      return;
+    }
+
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
+
+    await this.evaluateSession(session?.user?.email ?? null);
 
     supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      loadingEl.classList.add('hidden');
-      btnGoogle.classList.remove('hidden');
-
-      if (newSession?.user) {
-        await this.handleAuthenticatedUser(newSession.user.email ?? '');
-      } else {
-        this.switchToAuthScreen();
-      }
+      await this.evaluateSession(newSession?.user?.email ?? null);
     });
   }
 
-  private async handleAuthenticatedUser(rawEmail: string): Promise<void> {
-    const email = rawEmail.trim().toLowerCase();
+  private async evaluateSession(email: string | null): Promise<void> {
+    const authScreen = document.getElementById('admin-auth-screen')!;
+    const dashboard = document.getElementById('admin-dashboard')!;
+    const loadingEl = document.getElementById('admin-auth-loading')!;
+    const errorEl = document.getElementById('admin-auth-error')!;
+    const btnLogin = document.getElementById('btn-google-login')!;
+    const btnAuthSignout = document.getElementById('btn-auth-signout')!;
 
-    if (this.activeAdminEmail === email || this.isHandlingAuth) {
+    loadingEl.classList.add('hidden');
+
+    if (!email) {
+      authScreen.classList.remove('hidden');
+      dashboard.classList.add('hidden');
+      errorEl.classList.add('hidden');
+      btnLogin.classList.remove('hidden');
+      btnAuthSignout.classList.add('hidden');
       return;
     }
-    this.isHandlingAuth = true;
 
-    try {
-      if (!isAuthorizedAdminEmail(email)) {
-        await supabase.auth.signOut();
-        this.switchToAuthScreen();
-        this.showAuthError(
-          `⛔ Tài khoản "${rawEmail || 'Không xác định'}" không có quyền quản trị! Chỉ ${ALLOWED_ADMIN_EMAILS.join(' và ')} được phép truy cập /admin.`
-        );
-        return;
-      }
-
-      // Double-check against Supabase monopoly_admins table (RLS verified)
-      const { data: adminRow, error: adminErr } = await supabase
-        .from('monopoly_admins')
-        .select('email')
-        .eq('email', email)
-        .maybeSingle();
-
-      if (adminErr || !adminRow) {
-        await supabase.auth.signOut();
-        this.switchToAuthScreen();
-        this.showAuthError(
-          `⛔ Tài khoản "${email}" bị từ chối bởi chính sách bảo mật PostgreSQL RLS!`
-        );
-        return;
-      }
-
-      this.activeAdminEmail = email;
-      this.hideAuthError();
-      document.getElementById('admin-auth-screen')!.classList.add('hidden');
-      document.getElementById('admin-dashboard')!.classList.remove('hidden');
-      document.getElementById('admin-user-email')!.textContent = `🟢 Admin: ${email}`;
-
-      await this.loadCloudConfigAndRenderAll();
-
-      if (this.unsubscribeRealtime) {
-        this.unsubscribeRealtime();
-      }
-      this.unsubscribeRealtime = subscribeMonopolyCloudConfigRealtime((cloud) => {
-        this.updateSyncBadge(cloud);
-        this.renderAllTabs();
-      });
-    } finally {
-      this.isHandlingAuth = false;
-    }
-  }
-
-  private switchToAuthScreen(): void {
-    this.activeAdminEmail = null;
-    if (this.unsubscribeRealtime) {
-      this.unsubscribeRealtime();
-      this.unsubscribeRealtime = null;
-    }
-    document.getElementById('admin-dashboard')!.classList.add('hidden');
-    document.getElementById('admin-auth-screen')!.classList.remove('hidden');
-    document.getElementById('admin-auth-loading')!.classList.add('hidden');
-    document.getElementById('btn-google-login')!.classList.remove('hidden');
-  }
-
-  private updateSyncBadge(cloud: MonopolyCloudRow | null): void {
-    const badge = document.getElementById('admin-sync-status')!;
-    if (!cloud || !cloud.updated_at) {
-      badge.textContent = '☁️ Đang dùng cấu hình mặc định (Chưa có bản lưu trên mây)';
+    if (!isAuthorizedAdminEmail(email)) {
+      authScreen.classList.remove('hidden');
+      dashboard.classList.add('hidden');
+      btnLogin.classList.add('hidden');
+      btnAuthSignout.classList.remove('hidden');
+      this.showAuthError(
+        `⛔ Tài khoản "${escapeHtml(email)}" chưa được cấp quyền truy cập Bảng Quản Trị Đám Mây.`
+      );
       return;
     }
-    const timeStr = new Date(cloud.updated_at).toLocaleString('vi-VN');
-    badge.textContent = `☁️ Đồng bộ lúc ${timeStr}${cloud.updated_by ? ` bởi ${cloud.updated_by}` : ''}`;
+
+    this.currentUserEmail = email;
+    await this.enterAuthorizedDashboard();
   }
 
-  private async loadCloudConfigAndRenderAll(): Promise<void> {
-    const cloud = await fetchAndApplyMonopolyCloudConfig();
-    this.updateSyncBadge(cloud);
-    this.renderAllTabs();
+  private async enterAuthorizedDashboard(): Promise<void> {
+    const authScreen = document.getElementById('admin-auth-screen')!;
+    const dashboard = document.getElementById('admin-dashboard')!;
+
+    authScreen.classList.add('hidden');
+    dashboard.classList.remove('hidden');
+    document.getElementById('admin-user-email')!.textContent = `🟢 Quản trị viên: ${this.currentUserEmail}`;
+
+    const cloudRow = await fetchAndApplyMonopolyCloudConfig();
+    if (cloudRow?.updated_at) {
+      const timeStr = new Date(cloudRow.updated_at).toLocaleString('vi-VN');
+      document.getElementById('admin-last-sync')!.textContent =
+        `☁️ Đồng bộ lần cuối: ${timeStr} (${cloudRow.updated_by || 'System'})`;
+    } else {
+      document.getElementById('admin-last-sync')!.textContent = isSupabaseConfigured
+        ? '☁️ Đang dùng cấu hình mặc định (Bấm Lưu để khởi tạo bản ghi Supabase)'
+        : '💻 Chế độ Cục Bộ (Offline Studio)';
+    }
+
+    this.renderAllSections();
+
+    subscribeMonopolyCloudConfigRealtime((updatedRow) => {
+      if (updatedRow.updated_at) {
+        const t = new Date(updatedRow.updated_at).toLocaleString('vi-VN');
+        document.getElementById('admin-last-sync')!.textContent =
+          `☁️ Vừa cập nhật Realtime: ${t} (${updatedRow.updated_by || 'Admin'})`;
+      }
+      this.renderAllSections();
+    });
   }
 
-  private renderAllTabs(): void {
+  private showAuthError(msg: string): void {
+    const errorEl = document.getElementById('admin-auth-error')!;
+    errorEl.textContent = msg;
+    errorEl.classList.remove('hidden');
+  }
+
+  private showToast(msg: string, isError = false): void {
+    const toast = document.getElementById('admin-toast')!;
+    toast.textContent = msg;
+    toast.classList.toggle('error', isError);
+    toast.classList.remove('hidden');
+    window.setTimeout(() => {
+      toast.classList.add('hidden');
+    }, 4200);
+  }
+
+  private renderAllSections(): void {
     this.renderTilesSidebarList();
-    this.loadTileIntoDetailForm(this.selectedTileIndex);
-    this.renderRulesForm();
-    this.renderCharactersAndChestCards();
+    this.loadSelectedTileIntoForm(this.selectedTileIndex);
+    this.loadRulesIntoForm();
+    this.renderCharactersAndCardsForms();
+  }
+
+  private renderTilesSidebarList(): void {
+    const listEl = document.getElementById('tiles-grid-list')!;
+    const q = this.searchQuery.trim().toLowerCase();
+
+    const filtered = BOARD_TILES.filter((tile) => {
+      const matchQuery =
+        !q ||
+        tile.name.toLowerCase().includes(q) ||
+        `#${tile.index}`.includes(q) ||
+        String(tile.index) === q;
+
+      if (!matchQuery) return false;
+      if (this.typeFilter === 'ALL') return true;
+      if (this.typeFilter === 'SPECIAL') {
+        return (
+          tile.type === 'START' ||
+          tile.type === 'DESERTED_ISLAND' ||
+          tile.type === 'FESTIVAL' ||
+          tile.type === 'END_PORTAL' ||
+          tile.type === 'NETHER_PORTAL'
+        );
+      }
+      return tile.type === this.typeFilter;
+    });
+
+    listEl.innerHTML = filtered
+      .map((t) => {
+        const isSelected = t.index === this.selectedTileIndex;
+        const safeColor = sanitizeColorHex(t.colorHex);
+        const safeIcon = escapeHtml(t.icon);
+        const safeName = escapeHtml(t.name);
+        const safeGroup = escapeHtml(t.group);
+        const safeType = escapeHtml(t.type);
+        const priceLabel =
+          typeof t.price === 'number'
+            ? t.type === 'ROYAL_TAX'
+              ? `-$${t.price}`
+              : `$${t.price}`
+            : safeType;
+
+        return `
+          <button
+            type="button"
+            class="tile-list-item ${isSelected ? 'active' : ''}"
+            data-tile-idx="${t.index}"
+          >
+            <div class="tile-item-left">
+              <span class="tile-color-dot" style="background:${safeColor}"></span>
+              <div>
+                <div class="tile-item-title">#${t.index} ${safeIcon} ${safeName}</div>
+                <div class="tile-item-sub">${safeGroup} • ${safeType}</div>
+              </div>
+            </div>
+            <span class="tile-item-price">${escapeHtml(priceLabel)}</span>
+          </button>
+        `;
+      })
+      .join('');
+
+    listEl.querySelectorAll<HTMLButtonElement>('.tile-list-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.saveCurrentTileFormToMemory();
+        this.selectedTileIndex = Number(btn.dataset.tileIdx || 0);
+        this.renderTilesSidebarList();
+        this.loadSelectedTileIntoForm(this.selectedTileIndex);
+      });
+    });
+  }
+
+  private loadSelectedTileIntoForm(index: number): void {
+    const idx = ((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    this.selectedTileIndex = idx;
+    const tile = BOARD_TILES[idx];
+
+    document.getElementById('editor-tile-badge')!.textContent =
+      `Ô #${tile.index} • Tọa độ 3D (${tile.gridX}, ${tile.gridZ})`;
+    document.getElementById('editor-tile-heading')!.textContent = `${tile.icon} ${tile.name}`;
+
+    (document.getElementById('field-tile-name') as HTMLInputElement).value = tile.name;
+    (document.getElementById('field-tile-icon') as HTMLInputElement).value = tile.icon;
+    (document.getElementById('field-tile-type') as HTMLSelectElement).value = tile.type;
+    (document.getElementById('field-tile-group') as HTMLSelectElement).value = tile.group;
+    (document.getElementById('field-tile-color') as HTMLInputElement).value = tile.colorHex;
+    (document.getElementById('field-tile-color-picker') as HTMLInputElement).value =
+      sanitizeColorHex(tile.colorHex, '#10b981');
+
+    (document.getElementById('field-tile-price') as HTMLInputElement).value =
+      typeof tile.price === 'number' ? String(tile.price) : '';
+    (document.getElementById('field-tile-upgrade') as HTMLInputElement).value =
+      typeof tile.upgradeCost === 'number' ? String(tile.upgradeCost) : '';
+    (document.getElementById('field-tile-rents') as HTMLInputElement).value = tile.rents
+      ? tile.rents.join(', ')
+      : '';
+    (document.getElementById('field-tile-reason') as HTMLInputElement).value =
+      tile.rentReason ?? '';
+    (document.getElementById('field-tile-desc') as HTMLTextAreaElement).value = tile.description;
+  }
+
+  private saveCurrentTileFormToMemory(): void {
+    const tile = BOARD_TILES[this.selectedTileIndex];
+    if (!tile) return;
+
+    const nameVal = (document.getElementById('field-tile-name') as HTMLInputElement).value.trim();
+    const iconVal = (document.getElementById('field-tile-icon') as HTMLInputElement).value.trim();
+    const typeVal = (document.getElementById('field-tile-type') as HTMLSelectElement)
+      .value as TileType;
+    const groupVal = (document.getElementById('field-tile-group') as HTMLSelectElement)
+      .value as BoardColorGroup;
+    const colorVal = sanitizeColorHex(
+      (document.getElementById('field-tile-color') as HTMLInputElement).value.trim(),
+      tile.colorHex
+    );
+    const priceRaw = (document.getElementById('field-tile-price') as HTMLInputElement).value.trim();
+    const upgradeRaw = (
+      document.getElementById('field-tile-upgrade') as HTMLInputElement
+    ).value.trim();
+    const rentsRaw = (document.getElementById('field-tile-rents') as HTMLInputElement).value.trim();
+    const reasonVal = (
+      document.getElementById('field-tile-reason') as HTMLInputElement
+    ).value.trim();
+    const descVal = (
+      document.getElementById('field-tile-desc') as HTMLTextAreaElement
+    ).value.trim();
+
+    if (nameVal) tile.name = nameVal;
+    if (iconVal) tile.icon = iconVal;
+    tile.type = typeVal;
+    tile.group = groupVal;
+    tile.colorGroup =
+      groupVal !== 'SPECIAL' && groupVal !== 'RAILROAD' && groupVal !== 'UTILITY'
+        ? groupVal
+        : undefined;
+    tile.colorHex = colorVal;
+
+    tile.price = priceRaw !== '' && !Number.isNaN(Number(priceRaw)) ? Number(priceRaw) : undefined;
+    tile.upgradeCost =
+      upgradeRaw !== '' && !Number.isNaN(Number(upgradeRaw)) ? Number(upgradeRaw) : undefined;
+
+    if (rentsRaw !== '') {
+      const parsedRents = rentsRaw
+        .split(',')
+        .map((s) => Number(s.trim()))
+        .filter((n) => !Number.isNaN(n) && n >= 0);
+      tile.rents = parsedRents.length > 0 ? parsedRents : undefined;
+    } else {
+      tile.rents = undefined;
+    }
+
+    tile.rentReason = reasonVal || undefined;
+    if (descVal) tile.description = descVal;
+  }
+
+  private loadRulesIntoForm(): void {
+    const r = GAME_RULES_CONFIG;
+    (document.getElementById('rule-starting-gold') as HTMLInputElement).value = String(
+      r.startingGold
+    );
+    (document.getElementById('rule-pass-start') as HTMLInputElement).value = String(
+      r.passStartReward
+    );
+    (document.getElementById('rule-jail-fine') as HTMLInputElement).value = String(
+      r.jailFineAmount
+    );
+    (document.getElementById('rule-mortgage-pct') as HTMLInputElement).value = String(
+      r.mortgageRatePct
+    );
+    (document.getElementById('rule-unmortgage-pct') as HTMLInputElement).value = String(
+      r.unmortgageRatePct
+    );
+    (document.getElementById('rule-liquidation-pct') as HTMLInputElement).value = String(
+      r.liquidationRatePct
+    );
+    (document.getElementById('rule-monopoly-pct') as HTMLInputElement).value = String(
+      r.monopolyBonusPct
+    );
+    (document.getElementById('rule-buyout-pct') as HTMLInputElement).value = String(
+      r.hostileBuyoutMultiplierPct
+    );
+    (document.getElementById('rule-nether-bonus') as HTMLInputElement).value = String(
+      r.netherWarpGoldBonus
+    );
+    (document.getElementById('rule-festival-bonus') as HTMLInputElement).value = String(
+      r.festivalNoPropertyGoldBonus
+    );
+    (document.getElementById('rule-steve-discount') as HTMLInputElement).value = String(
+      r.steveUpgradeDiscountPct
+    );
+    (document.getElementById('rule-alex-bonus') as HTMLInputElement).value = String(
+      r.alexStartBonus
+    );
+    (document.getElementById('rule-creeper-discount') as HTMLInputElement).value = String(
+      r.creeperTaxDiscountPct
+    );
+    (document.getElementById('rule-enderman-bonus') as HTMLInputElement).value = String(
+      r.endermanPortalBonus
+    );
+  }
+
+  private saveRulesFormToMemory(): void {
+    const num = (id: string, fallback: number): number => {
+      const val = Number((document.getElementById(id) as HTMLInputElement)?.value);
+      return Number.isNaN(val) ? fallback : val;
+    };
+
+    GAME_RULES_CONFIG.startingGold = num('rule-starting-gold', 1500);
+    GAME_RULES_CONFIG.passStartReward = num('rule-pass-start', 200);
+    GAME_RULES_CONFIG.jailFineAmount = num('rule-jail-fine', 50);
+    GAME_RULES_CONFIG.mortgageRatePct = num('rule-mortgage-pct', 50);
+    GAME_RULES_CONFIG.unmortgageRatePct = num('rule-unmortgage-pct', 55);
+    GAME_RULES_CONFIG.liquidationRatePct = num('rule-liquidation-pct', 75);
+    GAME_RULES_CONFIG.monopolyBonusPct = num('rule-monopoly-pct', 150);
+    GAME_RULES_CONFIG.hostileBuyoutMultiplierPct = num('rule-buyout-pct', 160);
+    GAME_RULES_CONFIG.netherWarpGoldBonus = num('rule-nether-bonus', 120);
+    GAME_RULES_CONFIG.festivalNoPropertyGoldBonus = num('rule-festival-bonus', 80);
+    GAME_RULES_CONFIG.steveUpgradeDiscountPct = num('rule-steve-discount', 15);
+    GAME_RULES_CONFIG.alexStartBonus = num('rule-alex-bonus', 60);
+    GAME_RULES_CONFIG.creeperTaxDiscountPct = num('rule-creeper-discount', 20);
+    GAME_RULES_CONFIG.endermanPortalBonus = num('rule-enderman-bonus', 50);
+  }
+
+  private renderCharactersAndCardsForms(): void {
+    const charsContainer = document.getElementById('characters-editor-list')!;
+    charsContainer.innerHTML = CHARACTER_CONFIGS.map(
+      (c, idx) => `
+      <div class="char-editor-card">
+        <h4>${escapeHtml(c.emoji)} Nhân vật #${idx + 1}: ${escapeHtml(c.id.toUpperCase())}</h4>
+        <div class="admin-field">
+          <label>Tên nhân vật</label>
+          <input type="text" class="admin-input" data-char-idx="${idx}" data-char-field="name" value="${escapeHtml(c.name)}" />
+        </div>
+        <div class="admin-field">
+          <label>Danh hiệu</label>
+          <input type="text" class="admin-input" data-char-idx="${idx}" data-char-field="title" value="${escapeHtml(c.title)}" />
+        </div>
+        <div class="admin-field">
+          <label>Biểu tượng (Emoji)</label>
+          <input type="text" class="admin-input" data-char-idx="${idx}" data-char-field="emoji" value="${escapeHtml(c.emoji)}" />
+        </div>
+        <div class="admin-field">
+          <label>Màu chủ đạo (Hex)</label>
+          <input type="text" class="admin-input" data-char-idx="${idx}" data-char-field="color" value="${escapeHtml(c.color)}" />
+        </div>
+        <div class="admin-field">
+          <label>Tên Kỹ Năng Nội Tại</label>
+          <input type="text" class="admin-input" data-char-idx="${idx}" data-char-field="passiveName" value="${escapeHtml(c.passiveName)}" />
+        </div>
+        <div class="admin-field">
+          <label>Mô tả Kỹ Năng Nội Tại</label>
+          <textarea rows="2" class="admin-input" data-char-idx="${idx}" data-char-field="passiveDescription">${escapeHtml(c.passiveDescription)}</textarea>
+        </div>
+      </div>
+    `
+    ).join('');
+
+    const cardsContainer = document.getElementById('chest-cards-editor-list')!;
+    cardsContainer.innerHTML = CHEST_CARDS.map(
+      (card, idx) => `
+      <div class="chest-editor-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+          <h4>${card.deck === 'KHI_VAN' ? '🧧 Khí Vận' : '⚡ Cơ Hội'} #${idx + 1} (${escapeHtml(card.id)})</h4>
+          <select class="admin-input" style="width:140px;padding:4px 8px;font-size:11.5px" data-card-idx="${idx}" data-card-field="deck">
+            <option value="KHI_VAN" ${card.deck === 'KHI_VAN' ? 'selected' : ''}>🧧 Bộ Khí Vận</option>
+            <option value="CO_HOI" ${card.deck === 'CO_HOI' ? 'selected' : ''}>⚡ Bộ Cơ Hội</option>
+          </select>
+        </div>
+        <div class="admin-field">
+          <label>Tiêu đề thẻ</label>
+          <input type="text" class="admin-input" data-card-idx="${idx}" data-card-field="title" value="${escapeHtml(card.title)}" />
+        </div>
+        <div class="admin-field">
+          <label>Nội dung mô tả</label>
+          <textarea rows="2" class="admin-input" data-card-idx="${idx}" data-card-field="description">${escapeHtml(card.description)}</textarea>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="admin-field">
+            <label>Thay đổi Vàng (+/- $)</label>
+            <input type="number" step="10" class="admin-input" data-card-idx="${idx}" data-card-field="goldDelta" value="${card.goldDelta}" />
+          </div>
+          <div class="admin-field">
+            <label>Bay tới Ô # (0-39)</label>
+            <input type="number" min="0" max="39" placeholder="Để trống nếu không" class="admin-input" data-card-idx="${idx}" data-card-field="moveToTile" value="${typeof card.moveToTile === 'number' ? card.moveToTile : ''}" />
+          </div>
+          <div class="admin-field">
+            <label>Tiến/Lùi Bước (+/-)</label>
+            <input type="number" min="-15" max="15" placeholder="VD: -3" class="admin-input" data-card-idx="${idx}" data-card-field="stepDelta" value="${typeof card.stepDelta === 'number' ? card.stepDelta : ''}" />
+          </div>
+          <div class="admin-field">
+            <label>Thu mỗi đối thủ ($)</label>
+            <input type="number" min="0" step="10" placeholder="VD: 40" class="admin-input" data-card-idx="${idx}" data-card-field="collectFromEachPlayer" value="${typeof card.collectFromEachPlayer === 'number' ? card.collectFromEachPlayer : ''}" />
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;margin-top:6px;font-size:12px;color:#cbd5e1">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" data-card-idx="${idx}" data-card-field="goToJail" ${card.goToJail ? 'checked' : ''} />
+            <span>🚓 Vào Tù (#10)</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" data-card-idx="${idx}" data-card-field="grantGetOutOfJailCard" ${card.grantGetOutOfJailCard ? 'checked' : ''} />
+            <span>🕊️ Tặng Thẻ Ra Tù</span>
+          </label>
+        </div>
+      </div>
+    `
+    ).join('');
+  }
+
+  private saveCharactersAndCardsToMemory(): void {
+    document
+      .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-char-idx]')
+      .forEach((el) => {
+        const idx = Number(el.dataset.charIdx);
+        const field = el.dataset.charField as keyof (typeof CHARACTER_CONFIGS)[number];
+        if (CHARACTER_CONFIGS[idx] && field && field !== 'id') {
+          CHARACTER_CONFIGS[idx][field] = el.value.trim();
+        }
+      });
+
+    document
+      .querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('[data-card-idx]')
+      .forEach((el) => {
+        const idx = Number(el.dataset.cardIdx);
+        const field = el.dataset.cardField;
+        const card = CHEST_CARDS[idx];
+        if (!card || !field) return;
+
+        if (field === 'deck') {
+          card.deck = (el.value === 'KHI_VAN' ? 'KHI_VAN' : 'CO_HOI') as ChestDeckType;
+        } else if (field === 'title') {
+          card.title = el.value.trim();
+        } else if (field === 'description') {
+          card.description = el.value.trim();
+        } else if (field === 'goldDelta') {
+          card.goldDelta = Number(el.value) || 0;
+        } else if (field === 'moveToTile') {
+          const v = el.value.trim();
+          card.moveToTile = v !== '' && !Number.isNaN(Number(v)) ? Number(v) : undefined;
+        } else if (field === 'stepDelta') {
+          const v = el.value.trim();
+          card.stepDelta =
+            v !== '' && !Number.isNaN(Number(v)) && Number(v) !== 0 ? Number(v) : undefined;
+        } else if (field === 'collectFromEachPlayer') {
+          const v = el.value.trim();
+          card.collectFromEachPlayer =
+            v !== '' && !Number.isNaN(Number(v)) && Number(v) > 0 ? Number(v) : undefined;
+        } else if (field === 'goToJail' && el instanceof HTMLInputElement) {
+          card.goToJail = el.checked;
+        } else if (field === 'grantGetOutOfJailCard' && el instanceof HTMLInputElement) {
+          card.grantGetOutOfJailCard = el.checked;
+        }
+      });
+  }
+
+  private async persistEverythingToSupabase(): Promise<void> {
+    this.saveCurrentTileFormToMemory();
+    this.saveRulesFormToMemory();
+    this.saveCharactersAndCardsToMemory();
+    this.renderTilesSidebarList();
+    this.loadSelectedTileIntoForm(this.selectedTileIndex);
+
+    const res = await saveMonopolyCloudConfig(this.currentUserEmail);
+    if (!res.ok) {
+      this.showToast(`⚠️ ${res.error}`, true);
+      return;
+    }
+
+    const timeStr = new Date(res.updatedAt || Date.now()).toLocaleString('vi-VN');
+    document.getElementById('admin-last-sync')!.textContent =
+      `☁️ Đã lưu lúc: ${timeStr} (${this.currentUserEmail})`;
+    this.showToast(
+      '✅ Đã lưu toàn bộ 40 Ô Cờ, Luật Chơi, 4 Nhân Vật & 15 Thẻ Rương lên Supabase! Bàn cờ 3D đã tự động đồng bộ.'
+    );
   }
 
   private bindDashboardEvents(): void {
     // Tab switching
     document.querySelectorAll<HTMLButtonElement>('.admin-tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const targetId = btn.dataset.tab;
-        if (!targetId) return;
         document.querySelectorAll('.admin-tab-btn').forEach((b) => b.classList.remove('active'));
         document.querySelectorAll('.admin-tab-panel').forEach((p) => p.classList.remove('active'));
         btn.classList.add('active');
+        const targetId = btn.dataset.tab!;
         document.getElementById(targetId)?.classList.add('active');
       });
     });
 
-    // Tile filter & search
+    // Search & Filter 40 Tiles
     const searchInput = document.getElementById('tile-search-input') as HTMLInputElement;
     const typeFilter = document.getElementById('tile-type-filter') as HTMLSelectElement;
 
     searchInput.addEventListener('input', () => {
-      this.tileSearchQuery = searchInput.value.trim().toLowerCase();
+      this.searchQuery = searchInput.value;
       this.renderTilesSidebarList();
     });
 
     typeFilter.addEventListener('change', () => {
-      this.tileTypeFilter = typeFilter.value;
+      this.typeFilter = typeFilter.value;
       this.renderTilesSidebarList();
     });
 
     // Prev / Next Tile buttons
     document.getElementById('btn-prev-tile')!.addEventListener('click', () => {
-      this.collectCurrentTileFormIntoRuntime();
+      this.saveCurrentTileFormToMemory();
       this.selectedTileIndex = (this.selectedTileIndex - 1 + BOARD_SIZE) % BOARD_SIZE;
       this.renderTilesSidebarList();
-      this.loadTileIntoDetailForm(this.selectedTileIndex);
+      this.loadSelectedTileIntoForm(this.selectedTileIndex);
     });
 
     document.getElementById('btn-next-tile')!.addEventListener('click', () => {
-      this.collectCurrentTileFormIntoRuntime();
+      this.saveCurrentTileFormToMemory();
       this.selectedTileIndex = (this.selectedTileIndex + 1) % BOARD_SIZE;
       this.renderTilesSidebarList();
-      this.loadTileIntoDetailForm(this.selectedTileIndex);
+      this.loadSelectedTileIntoForm(this.selectedTileIndex);
     });
 
     // Color picker sync
     const colorPicker = document.getElementById('field-tile-color-picker') as HTMLInputElement;
-    const colorText = document.getElementById('field-tile-color') as HTMLInputElement;
-
+    const colorInput = document.getElementById('field-tile-color') as HTMLInputElement;
     colorPicker.addEventListener('input', () => {
-      colorText.value = colorPicker.value;
+      colorInput.value = colorPicker.value;
     });
-    colorText.addEventListener('input', () => {
-      if (/^#[0-9a-fA-F]{6}$/.test(colorText.value.trim())) {
-        colorPicker.value = colorText.value.trim();
+    colorInput.addEventListener('input', () => {
+      if (/^#[0-9a-fA-F]{6}$/.test(colorInput.value.trim())) {
+        colorPicker.value = colorInput.value.trim();
       }
     });
 
-    // Save & Sync buttons
-    const triggerFullCloudSave = async () => {
-      this.collectCurrentTileFormIntoRuntime();
-      this.collectRulesFormIntoRuntime();
-      this.collectCharactersAndCardsIntoRuntime();
-      this.renderTilesSidebarList();
+    // Save buttons
+    document.getElementById('btn-apply-tile')!.addEventListener('click', () => {
+      this.persistEverythingToSupabase();
+    });
+    document.getElementById('btn-save-rules')!.addEventListener('click', () => {
+      this.persistEverythingToSupabase();
+    });
+    document.getElementById('btn-save-chars')!.addEventListener('click', () => {
+      this.persistEverythingToSupabase();
+    });
+    document.getElementById('btn-save-all-cloud')!.addEventListener('click', () => {
+      this.persistEverythingToSupabase();
+    });
 
-      const btn = document.getElementById('btn-save-supabase') as HTMLButtonElement;
-      const origText = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Đang đồng bộ lên Supabase...';
-
-      const res = await saveMonopolyCloudConfigToSupabase();
-      btn.disabled = false;
-      btn.textContent = origText;
-
-      if (res.ok) {
-        this.showToast(
-          '✅ Đã lưu và phát sóng trực tiếp (Realtime) lên Supabase! Bàn cờ 3D ở trang chính đã được cập nhật.'
-        );
-        const cloud = await fetchAndApplyMonopolyCloudConfig();
-        this.updateSyncBadge(cloud);
+    // Reload from Cloud
+    document.getElementById('btn-reload-cloud')!.addEventListener('click', async () => {
+      const row = await fetchAndApplyMonopolyCloudConfig();
+      this.renderAllSections();
+      if (row) {
+        this.showToast('🔄 Đã tải lại cấu hình mới nhất từ Supabase Cloud!');
       } else {
-        this.showToast(`❌ Lỗi lưu lên Supabase: ${res.error}`, true);
+        this.showToast('⚠️ Không tìm thấy bản ghi đám mây hoặc đang ở chế độ Cục bộ.', true);
       }
-    };
+    });
 
-    document
-      .getElementById('btn-save-supabase')!
-      .addEventListener('click', triggerFullCloudSave);
-    document
-      .getElementById('btn-apply-tile-and-sync')!
-      .addEventListener('click', triggerFullCloudSave);
-    document
-      .getElementById('btn-save-rules-supabase')!
-      .addEventListener('click', triggerFullCloudSave);
-    document
-      .getElementById('btn-save-chars-cards-supabase')!
-      .addEventListener('click', triggerFullCloudSave);
+    // Factory Reset Button
+    document.getElementById('btn-factory-reset')!.addEventListener('click', async () => {
+      resetMonopolyConfigToFactoryDefault();
+      this.renderAllSections();
+      if (isSupabaseConfigured) {
+        await saveMonopolyCloudConfig(this.currentUserEmail);
+      }
+      this.showToast(
+        '♻️ Đã khôi phục toàn bộ 40 Ô Cờ Sài Gòn Voxel, Luật Chơi, 4 Nhân Vật & 15 Thẻ Rương về Mặc Định Gốc!'
+      );
+    });
 
-    // Export full JSON
+    // Export JSON
     document.getElementById('btn-export-json')!.addEventListener('click', () => {
-      this.collectCurrentTileFormIntoRuntime();
-      this.collectRulesFormIntoRuntime();
-      this.collectCharactersAndCardsIntoRuntime();
+      this.saveCurrentTileFormToMemory();
+      this.saveRulesFormToMemory();
+      this.saveCharactersAndCardsToMemory();
 
       const payload = {
+        version: '5.0.0',
         exportedAt: new Date().toISOString(),
-        tiles_json: getExportableTilesSpecArray(),
-        rules_json: { ...GAME_RULES_CONFIG },
-        characters_json: CHARACTER_CONFIGS.map((c) => ({ ...c })),
-        chest_cards_json: CHEST_CARDS.map((c) => ({ ...c }))
+        exportedBy: this.currentUserEmail,
+        tiles_config: BOARD_TILES,
+        rules_config: GAME_RULES_CONFIG,
+        characters_config: CHARACTER_CONFIGS,
+        chest_cards_config: CHEST_CARDS
       };
 
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json;charset=utf-8'
-      });
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'astrocyberr-monopoly-config.json';
-      document.body.appendChild(a);
+      a.download = `astrocyberr-monopoly-config-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
-      a.remove();
       URL.revokeObjectURL(url);
-      this.showToast('📥 Đã xuất file astrocyberr-monopoly-config.json thành công!');
+      this.showToast('📥 Đã xuất file cấu hình JSON thành công!');
     });
 
-    // Import JSON file
+    // Import JSON (with strict schema validation via `applyCloudConfigToMemory`)
     const importInput = document.getElementById('input-import-json') as HTMLInputElement;
     importInput.addEventListener('change', async () => {
       const file = importInput.files?.[0];
       if (!file) return;
       try {
         const text = await file.text();
-        const parsed = JSON.parse(text);
-
-        if (Array.isArray(parsed)) {
-          // Support importing raw 40-tile array directly
-          applyCloudConfigToRuntime({ tiles_json: parsed });
-        } else if (parsed && typeof parsed === 'object') {
-          applyCloudConfigToRuntime({
-            tiles_json: Array.isArray(parsed.tiles_json) ? parsed.tiles_json : undefined,
-            rules_json: parsed.rules_json,
-            characters_json: Array.isArray(parsed.characters_json)
-              ? parsed.characters_json
-              : undefined,
-            chest_cards_json: Array.isArray(parsed.chest_cards_json)
-              ? parsed.chest_cards_json
-              : undefined
-          });
-        }
-
-        this.renderAllTabs();
+        const parsed = JSON.parse(text) as Partial<MonopolyCloudConfigRow>;
+        applyCloudConfigToMemory(parsed);
+        this.renderAllSections();
         this.showToast(
-          '📤 Đã nạp file JSON vào bảng quản trị! Bấm "Lưu & Đồng Bộ Lên Supabase" để áp dụng lên đám mây.'
+          '📤 Đã nhập và kiểm tra an toàn cấu hình JSON! Bấm "LƯU LÊN SUPABASE" để áp dụng lên đám mây.'
         );
       } catch (err) {
         this.showToast(`❌ File JSON không hợp lệ: ${(err as Error).message}`, true);
@@ -350,288 +683,17 @@ class MonopolyAdminConsole {
         importInput.value = '';
       }
     });
-  }
 
-  private renderTilesSidebarList(): void {
-    const container = document.getElementById('tiles-grid-list')!;
-    const filtered = BOARD_TILES.filter((t) => {
-      if (this.tileTypeFilter !== 'ALL' && t.type !== this.tileTypeFilter) {
-        return false;
+    // Logout
+    document.getElementById('btn-logout')!.addEventListener('click', async () => {
+      if (supabase) {
+        await supabase.auth.signOut();
       }
-      if (!this.tileSearchQuery) return true;
-      const q = this.tileSearchQuery;
-      return (
-        t.name.toLowerCase().includes(q) ||
-        `#${t.index}`.includes(q) ||
-        `${t.index}` === q ||
-        t.type.toLowerCase().includes(q)
-      );
+      window.location.reload();
     });
-
-    container.innerHTML = filtered
-      .map((t) => {
-        const isActive = t.index === this.selectedTileIndex;
-        const priceBadge =
-          typeof t.price === 'number' && t.price > 0 ? `$${t.price}` : t.type;
-        return `
-          <button
-            type="button"
-            class="tile-list-item ${isActive ? 'active' : ''}"
-            data-tile-idx="${t.index}"
-          >
-            <div class="tile-item-left">
-              <span class="tile-color-dot" style="background:${t.colorHex}"></span>
-              <div>
-                <div class="tile-item-title">#${t.index} ${t.icon} ${t.name}</div>
-                <div class="tile-item-sub">${t.type}${t.colorGroup ? ` • ${t.colorGroup}` : ''}</div>
-              </div>
-            </div>
-            <span class="tile-item-price">${priceBadge}</span>
-          </button>
-        `;
-      })
-      .join('');
-
-    container.querySelectorAll<HTMLButtonElement>('.tile-list-item').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        this.collectCurrentTileFormIntoRuntime();
-        this.selectedTileIndex = Number(btn.dataset.tileIdx);
-        this.renderTilesSidebarList();
-        this.loadTileIntoDetailForm(this.selectedTileIndex);
-      });
-    });
-  }
-
-  private loadTileIntoDetailForm(idx: number): void {
-    const t = BOARD_TILES[idx];
-    if (!t) return;
-
-    document.getElementById('editor-tile-badge')!.textContent =
-      `Ô #${t.index} • ${t.type}${t.colorGroup ? ` (${t.colorGroup})` : ''}`;
-    document.getElementById('editor-tile-heading')!.textContent = `${t.icon} ${t.name}`;
-
-    (document.getElementById('field-tile-name') as HTMLInputElement).value = t.name;
-    (document.getElementById('field-tile-icon') as HTMLInputElement).value = t.icon;
-    (document.getElementById('field-tile-type') as HTMLSelectElement).value = t.type;
-    (document.getElementById('field-tile-group') as HTMLSelectElement).value =
-      t.colorGroup ?? '';
-    (document.getElementById('field-tile-color') as HTMLInputElement).value = t.colorHex;
-    if (/^#[0-9a-fA-F]{6}$/.test(t.colorHex)) {
-      (document.getElementById('field-tile-color-picker') as HTMLInputElement).value =
-        t.colorHex;
-    }
-
-    (document.getElementById('field-tile-price') as HTMLInputElement).value =
-      typeof t.price === 'number' ? `${t.price}` : '';
-    (document.getElementById('field-tile-upgrade') as HTMLInputElement).value =
-      typeof t.upgradeCost === 'number' ? `${t.upgradeCost}` : '';
-
-    (document.getElementById('field-rent-0') as HTMLInputElement).value = t.rents
-      ? `${t.rents[0]}`
-      : '';
-    (document.getElementById('field-rent-1') as HTMLInputElement).value = t.rents
-      ? `${t.rents[1]}`
-      : '';
-    (document.getElementById('field-rent-2') as HTMLInputElement).value = t.rents
-      ? `${t.rents[2]}`
-      : '';
-    (document.getElementById('field-rent-3') as HTMLInputElement).value = t.rents
-      ? `${t.rents[3]}`
-      : '';
-
-    (document.getElementById('field-tile-reason') as HTMLInputElement).value =
-      t.rentReason ?? '';
-    (document.getElementById('field-tile-desc') as HTMLTextAreaElement).value =
-      t.description;
-  }
-
-  private collectCurrentTileFormIntoRuntime(): void {
-    const idx = this.selectedTileIndex;
-    const current = BOARD_TILES[idx];
-    if (!current) return;
-
-    const name = (document.getElementById('field-tile-name') as HTMLInputElement).value.trim();
-    const icon = (document.getElementById('field-tile-icon') as HTMLInputElement).value.trim();
-    const type = (document.getElementById('field-tile-type') as HTMLSelectElement)
-      .value as TileType;
-    const groupRaw = (document.getElementById('field-tile-group') as HTMLSelectElement).value;
-    const colorHex = (document.getElementById('field-tile-color') as HTMLInputElement).value.trim();
-    const priceRaw = (document.getElementById('field-tile-price') as HTMLInputElement).value;
-    const upgradeRaw = (document.getElementById('field-tile-upgrade') as HTMLInputElement).value;
-
-    const r0 = Number((document.getElementById('field-rent-0') as HTMLInputElement).value);
-    const r1 = Number((document.getElementById('field-rent-1') as HTMLInputElement).value);
-    const r2 = Number((document.getElementById('field-rent-2') as HTMLInputElement).value);
-    const r3 = Number((document.getElementById('field-rent-3') as HTMLInputElement).value);
-
-    const rentReason = (document.getElementById('field-tile-reason') as HTMLInputElement).value.trim();
-    const description = (
-      document.getElementById('field-tile-desc') as HTMLTextAreaElement
-    ).value.trim();
-
-    const hasRents = !Number.isNaN(r0) && r0 > 0;
-
-    current.type = type;
-    current.colorGroup = groupRaw ? (groupRaw as ColorGroupId) : undefined;
-
-    updateBoardTileConfigInPlace(idx, {
-      name: name || current.name,
-      icon: icon || current.icon,
-      colorHex: colorHex || current.colorHex,
-      price: priceRaw !== '' ? Number(priceRaw) : undefined,
-      upgradeCost: upgradeRaw !== '' ? Number(upgradeRaw) : undefined,
-      rents: hasRents ? [r0, r1 || r0, r2 || r1 || r0, r3 || r2 || r0] : undefined,
-      rentReason: rentReason || undefined,
-      description: description || current.description
-    });
-  }
-
-  private renderRulesForm(): void {
-    (document.getElementById('rule-initial-gold') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.initialGold}`;
-    (document.getElementById('rule-start-bonus') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.startBonus}`;
-    (document.getElementById('rule-alex-bonus') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.alexStartBonus}`;
-    (document.getElementById('rule-steve-discount') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.steveUpgradeDiscountPct}`;
-    (document.getElementById('rule-creeper-discount') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.creeperTaxDiscountPct}`;
-    (document.getElementById('rule-enderman-bonus') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.endermanPortalBonus}`;
-    (document.getElementById('rule-liquidation-rate') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.liquidationRatePct}`;
-    (document.getElementById('rule-buyout-mult') as HTMLInputElement).value =
-      `${GAME_RULES_CONFIG.buyoutMultiplier}`;
-  }
-
-  private collectRulesFormIntoRuntime(): void {
-    const num = (id: string, fallback: number) => {
-      const v = Number((document.getElementById(id) as HTMLInputElement).value);
-      return Number.isFinite(v) && v >= 0 ? v : fallback;
-    };
-
-    GAME_RULES_CONFIG.initialGold = num('rule-initial-gold', 1500);
-    GAME_RULES_CONFIG.startBonus = num('rule-start-bonus', 200);
-    GAME_RULES_CONFIG.alexStartBonus = num('rule-alex-bonus', 240);
-    GAME_RULES_CONFIG.steveUpgradeDiscountPct = num('rule-steve-discount', 15);
-    GAME_RULES_CONFIG.creeperTaxDiscountPct = num('rule-creeper-discount', 20);
-    GAME_RULES_CONFIG.endermanPortalBonus = num('rule-enderman-bonus', 50);
-    GAME_RULES_CONFIG.liquidationRatePct = num('rule-liquidation-rate', 75);
-    GAME_RULES_CONFIG.buyoutMultiplier = num('rule-buyout-mult', 1.8);
-  }
-
-  private renderCharactersAndChestCards(): void {
-    const charsContainer = document.getElementById('characters-editor-grid')!;
-    charsContainer.innerHTML = CHARACTER_CONFIGS.map(
-      (c, i) => `
-        <div class="entity-editor-card" data-char-idx="${i}">
-          <div class="entity-card-header">
-            <span>${c.emoji} Nhân Vật #${i + 1}: ${c.id.toUpperCase()}</span>
-            <span style="color:${c.primaryColor}">${c.locomotion}</span>
-          </div>
-          <div class="admin-field">
-            <label>Tên Hiển Thị</label>
-            <input type="text" class="admin-input char-name" value="${c.name}" />
-          </div>
-          <div class="admin-field">
-            <label>Danh Hiệu (` +
-        '`title`' +
-        `)</label>
-            <input type="text" class="admin-input char-title" value="${c.title}" />
-          </div>
-          <div class="admin-field">
-            <label>Tên Kỹ Năng Nội Tại (` +
-        '`passiveName`' +
-        `)</label>
-            <input type="text" class="admin-input char-passive-name" value="${c.passiveName}" />
-          </div>
-          <div class="admin-field">
-            <label>Mô Tả Nội Tại (` +
-        '`passiveDescription`' +
-        `)</label>
-            <textarea rows="2" class="admin-input char-passive-desc">${c.passiveDescription}</textarea>
-          </div>
-        </div>
-      `
-    ).join('');
-
-    const cardsContainer = document.getElementById('chest-cards-editor-grid')!;
-    cardsContainer.innerHTML = CHEST_CARDS.map((card, i) => {
-      const gDelta = card.goldDelta ?? 0;
-      const deckBadge =
-        card.deck === 'CO_HOI' ? '⚡ CƠ HỘI (#7,#22,#36)' : '🧧 KHÍ VẬN (#2,#17,#33)';
-      return `
-        <div class="entity-editor-card" data-card-idx="${i}">
-          <div class="entity-card-header">
-            <span>${deckBadge} • #${i + 1} (${card.id})</span>
-            <span>${gDelta >= 0 ? `+$${gDelta}` : `-$${Math.abs(gDelta)}`}</span>
-          </div>
-          <div class="admin-field">
-            <label>Tiêu Đề Thẻ (\`title\`)</label>
-            <input type="text" class="admin-input card-title" value="${card.title}" />
-          </div>
-          <div class="admin-field">
-            <label>Nội Dung Sự Kiện (\`description\`)</label>
-            <textarea rows="2" class="admin-input card-desc">${card.description}</textarea>
-          </div>
-          <div class="admin-form-grid">
-            <div class="admin-field">
-              <label>Thưởng / Phạt Tiền $ (\`goldDelta\`)</label>
-              <input type="number" class="admin-input card-gold" value="${gDelta}" step="10" />
-            </div>
-            <div class="admin-field">
-              <label>Bay Tới Ô # (\`moveToTile\` - Để trống nếu không)</label>
-              <input type="number" class="admin-input card-move" value="${
-                typeof card.moveToTile === 'number' ? card.moveToTile : ''
-              }" min="0" max="39" />
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  private collectCharactersAndCardsIntoRuntime(): void {
-    document
-      .querySelectorAll<HTMLElement>('#characters-editor-grid .entity-editor-card')
-      .forEach((cardEl) => {
-        const idx = Number(cardEl.dataset.charIdx);
-        const cfg = CHARACTER_CONFIGS[idx];
-        if (!cfg) return;
-        cfg.name =
-          (cardEl.querySelector('.char-name') as HTMLInputElement)?.value.trim() || cfg.name;
-        cfg.title =
-          (cardEl.querySelector('.char-title') as HTMLInputElement)?.value.trim() || cfg.title;
-        cfg.passiveName =
-          (cardEl.querySelector('.char-passive-name') as HTMLInputElement)?.value.trim() ||
-          cfg.passiveName;
-        cfg.passiveDescription =
-          (cardEl.querySelector('.char-passive-desc') as HTMLTextAreaElement)?.value.trim() ||
-          cfg.passiveDescription;
-      });
-
-    document
-      .querySelectorAll<HTMLElement>('#chest-cards-editor-grid .entity-editor-card')
-      .forEach((cardEl) => {
-        const idx = Number(cardEl.dataset.cardIdx);
-        const card = CHEST_CARDS[idx];
-        if (!card) return;
-        card.title =
-          (cardEl.querySelector('.card-title') as HTMLInputElement)?.value.trim() || card.title;
-        card.description =
-          (cardEl.querySelector('.card-desc') as HTMLTextAreaElement)?.value.trim() ||
-          card.description;
-        const goldVal = Number((cardEl.querySelector('.card-gold') as HTMLInputElement)?.value);
-        if (Number.isFinite(goldVal)) {
-          card.goldDelta = goldVal;
-        }
-        const moveRaw = (cardEl.querySelector('.card-move') as HTMLInputElement)?.value.trim();
-        card.moveToTile = moveRaw !== '' ? Number(moveRaw) : undefined;
-      });
   }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  new MonopolyAdminConsole();
+  new MonopolyAdminStudio();
 });

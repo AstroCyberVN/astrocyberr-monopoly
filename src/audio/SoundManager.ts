@@ -1,5 +1,6 @@
 export class SoundManager {
   private ctx: AudioContext | null = null;
+  private masterCompressor: DynamicsCompressorNode | null = null;
   private sfxEnabled = true;
   private bgmEnabled = false;
   private masterVolume = 0.85;
@@ -16,12 +17,25 @@ export class SoundManager {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
+        // Master DynamicsCompressorNode limiter to prevent polyphonic clipping
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.threshold.setValueAtTime(-14, this.ctx.currentTime);
+        comp.knee.setValueAtTime(18, this.ctx.currentTime);
+        comp.ratio.setValueAtTime(6, this.ctx.currentTime);
+        comp.attack.setValueAtTime(0.003, this.ctx.currentTime);
+        comp.release.setValueAtTime(0.18, this.ctx.currentTime);
+        comp.connect(this.ctx.destination);
+        this.masterCompressor = comp;
       }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
     return this.ctx;
+  }
+
+  private getOutputNode(ctx: AudioContext): AudioNode {
+    return this.masterCompressor ?? ctx.destination;
   }
 
   public isSfxEnabled(): boolean {
@@ -73,7 +87,7 @@ export class SoundManager {
     gain.gain.setValueAtTime(0.08 * this.masterVolume, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.06);
   }
@@ -102,7 +116,7 @@ export class SoundManager {
 
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
 
     osc.start(now);
     osc.stop(now + 0.065);
@@ -114,6 +128,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
     const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
     notes.forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -127,7 +142,7 @@ export class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.19);
     });
@@ -142,7 +157,7 @@ export class SoundManager {
       gain.gain.setValueAtTime(0.11 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.44);
     });
@@ -167,7 +182,7 @@ export class SoundManager {
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
 
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
 
     osc.start(now);
     osc.stop(now + 0.17);
@@ -197,7 +212,7 @@ export class SoundManager {
 
     osc1.connect(gain);
     osc2.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
 
     osc1.start(now);
     osc2.start(now);
@@ -211,6 +226,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
 
     const bufferSize = Math.floor(ctx.sampleRate * 0.26);
     const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
@@ -234,7 +250,7 @@ export class SoundManager {
 
     noise.connect(filter);
     filter.connect(noiseGain);
-    noiseGain.connect(ctx.destination);
+    noiseGain.connect(out);
     noise.start(now);
     noise.stop(now + 0.26);
 
@@ -249,7 +265,7 @@ export class SoundManager {
     subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
     sub.connect(subGain);
-    subGain.connect(ctx.destination);
+    subGain.connect(out);
     sub.start(now);
     sub.stop(now + 0.26);
   }
@@ -260,6 +276,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
     const notes = [987.77, 1318.51];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
@@ -272,7 +289,7 @@ export class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(start);
       osc.stop(start + 0.23);
     });
@@ -284,6 +301,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
     const baseNotes = [523.25, 659.25, 783.99, 1046.5];
     const count = Math.max(2, Math.min(4, level + 1));
 
@@ -299,7 +317,7 @@ export class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.13);
     }
@@ -311,6 +329,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
     const notes = [440, 392, 329.63];
     notes.forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -321,7 +340,7 @@ export class SoundManager {
       gain.gain.setValueAtTime(0.1 * this.masterVolume, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.13);
     });
@@ -333,6 +352,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
     const freqs = [293.66, 440, 587.33, 880, 1174.66];
     freqs.forEach((f, idx) => {
       const osc = ctx.createOscillator();
@@ -346,7 +366,7 @@ export class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.3);
     });
@@ -358,6 +378,7 @@ export class SoundManager {
     if (!ctx) return;
 
     const now = ctx.currentTime;
+    const out = this.getOutputNode(ctx);
     const fanfare = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5];
     const delays = [0, 0.12, 0.24, 0.36, 0.54, 0.68];
 
@@ -372,7 +393,7 @@ export class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(out);
       osc.start(t);
       osc.stop(t + 0.24);
     });
@@ -402,7 +423,7 @@ export class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(now);
       osc.stop(now + 0.34);
     }, 380);

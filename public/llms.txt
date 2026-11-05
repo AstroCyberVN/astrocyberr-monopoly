@@ -1,0 +1,17 @@
+# AstroCyberr Monopoly — Sài Gòn Voxel Cyber-Craft 3D (v5.0)
+
+> AstroCyberr Monopoly là tựa game WebGL 3D Cờ Tỷ Phú Voxel 40 Ô lấy cảm hứng từ các địa danh biểu tượng Sài Gòn – Việt Nam (từ Bến Nhà Rồng `#0`, Ga Hòa Hưng `#5`, Nhà Tù Chí Hòa `#10`, Bãi Đậu Xe & Đại Tiệc Lễ Hội `#20`, Cổng Dịch Chuyển The End `#30`, Cổng Obsidian Nether `#33`, đến Chợ Bến Thành `#37` và Dinh Độc Lập `#39`).
+
+## Điểm Nổi Bật Kiến Trúc v5.0
+- **Bàn Cờ Đảo Nổi Voxel 3D 40 Ô**: Render bằng Three.js + GSAP với hệ thống Camera Kép (`Normal` xoay cầu 360° & `Live` đạo diễn 3 góc máy tự động) và chu kỳ ánh sáng `☀️ Ngày` -> `🌅 Hoàng Hôn` -> `🌙 Đêm Sao`.
+- **4 Nhân Vật Chibi & Kỹ Năng Nội Tại**:
+  - `Steve` (`⛏️ Bậc Thầy Xây Dựng`): Giảm 15% chi phí nâng cấp công trình trên mọi ô đất (áp dụng đồng nhất cho Thế chấp & Thanh lý).
+  - `Alex` (`🏹 Bước Chân Thần Tốc`): Nhận thêm +$60 mỗi lần đi qua hoặc dừng tại Ô Xuất Phát (`#0 Bến Nhà Rồng`).
+  - `Creeper` (`🧨 Kháng Thuế & Bẫy TNT`): Giảm 20% tiền nộp tại các ô Thuế (`#4` & `#38`) và khiến đối thủ phải trả thêm +15% Phí Răn Đe TNT khi muốn Mua Đứt (Hostile Buyout) đất của Creeper.
+  - `Enderman` (`🔮 Dịch Chuyển Hư Không`): Nhận +$50 Tinh Thể Ender mỗi khi dịch chuyển qua Cổng (`#20`, `#30`, `#33`), bay theo Thẻ Rương hoặc thoát khỏi Nhà Tù Chí Hòa (`#10`).
+- **Kinh Tế Học & Chiến Thuật Chuyên Sâu**:
+  - Phân tích xác suất dừng Markov (%) và tỷ suất hoàn vốn (ROI %) trực tiếp trên từng ô đất.
+  - Thương lượng trao đổi đất & tiền mặt (`🤝 Thương Lượng`) giữa người chơi với nhau hoặc với AI Bot.
+  - Đấu giá công khai khi bỏ qua ô đất trống, Thế chấp/Giải chấp Ngân hàng, Mua đứt lãnh địa (Hostile Buyout `[B]`).
+- **Đồng Bộ Đám Mây Supabase Realtime**:
+  - Trang quản trị `/admin` bảo mật qua Google OAuth + RLS cho phép chỉnh sửa trực tiếp 40 ô cờ, luật chơi, 4 nhân vật và 15 thẻ rương (7 Khí Vận + 8 Cơ Hội) đồng bộ tức thì tới mọi bàn cờ 3D đang mở.

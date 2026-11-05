@@ -2,32 +2,33 @@ import {
   BOARD_SIZE,
   BOARD_TILES,
   BUILDING_TIER_NAMES,
+  BoardColorGroup,
   CHARACTER_CONFIGS,
   CHEST_CARDS,
   CharacterId,
   ChestCard,
-  ColorGroupId,
   GAME_RULES_CONFIG,
-  LocomotionType,
   TileConfig
 } from './boardData';
+import { gameEventBus } from './EventBus';
 
 export type GameMode = 'SOLO_VS_AI' | 'PASS_AND_PLAY' | 'ONLINE_ROOM';
 
 export interface PlayerState {
   id: string;
-  name: string;
   characterId: CharacterId;
-  locomotion: LocomotionType;
+  name: string;
   color: string;
   emoji: string;
-  isBot: boolean;
   gold: number;
   position: number;
+  isBot: boolean;
+  bankrupt: boolean;
   skipTurns: number;
   inJail?: boolean;
+  jailTurns?: number;
   jailFreeCards?: number;
-  bankrupt: boolean;
+  consecutiveDoubles?: number;
 }
 
 export interface TileState {
@@ -35,25 +36,26 @@ export interface TileState {
   ownerId: string | null;
   level: number;
   festivalMultiplier: number;
+  festivalTurnsLeft?: number;
   mortgaged?: boolean;
 }
 
+export type LandingActionType =
+  | 'NONE'
+  | 'CAN_BUY_PROPERTY'
+  | 'CAN_UPGRADE_PROPERTY'
+  | 'PAID_RENT'
+  | 'PAID_ROYAL_TAX'
+  | 'CHEST_DRAWN'
+  | 'SKIP_TURN_SET'
+  | 'JUST_VISITING_JAIL'
+  | 'SENT_TO_JAIL'
+  | 'CHOOSE_FESTIVAL_TILE'
+  | 'CHOOSE_PORTAL_TARGET'
+  | 'NETHER_PORTAL_READY';
+
 export interface TileResolutionResult {
-  action:
-    | 'START_LANDED'
-    | 'CAN_BUY_PROPERTY'
-    | 'CAN_UPGRADE_PROPERTY'
-    | 'MAX_LEVEL_OWNED'
-    | 'PAID_RENT'
-    | 'CHEST_DRAWN'
-    | 'SKIP_TURN_SET'
-    | 'JUST_VISITING_JAIL'
-    | 'SENT_TO_JAIL'
-    | 'CHOOSE_FESTIVAL_TILE'
-    | 'CHOOSE_PORTAL_TARGET'
-    | 'NETHER_PORTAL_READY'
-    | 'PAID_ROYAL_TAX'
-    | 'INSUFFICIENT_GOLD';
+  action: LandingActionType;
   tileIndex: number;
   tileName: string;
   amount?: number;
@@ -61,8 +63,6 @@ export interface TileResolutionResult {
   ownerName?: string;
   rentReason?: string;
   canAffordRent?: boolean;
-  buyoutCost?: number | null;
-  canBuyoutAfterRent?: boolean;
   payerPrevGold?: number;
   ownerPrevGold?: number;
   chestCard?: ChestCard;
@@ -73,82 +73,106 @@ export interface TileResolutionResult {
   message: string;
 }
 
-export interface LiquidatablePropertyInfo {
-  tileIndex: number;
-  name: string;
-  level: number;
-  resaleValue: number;
-}
-
 export interface ConfirmedRentPaymentResult {
-  bankrupt: boolean;
+  ok: boolean;
   paidAmount: number;
-  rentRequired: number;
+  rentAmount: number;
+  ownerId: string;
   payerPrevGold: number;
   payerNewGold: number;
   ownerPrevGold: number;
   ownerNewGold: number;
-  ownerId: string;
-  ownerName: string;
-  rentReason: string;
+  bankrupt: boolean;
+}
+
+export interface TradeProposal {
+  fromPlayerId: string;
+  toPlayerId: string;
+  targetTileIndex: number;
+  offeredTileIndex?: number;
+  cashOffer: number;
+}
+
+export interface TradeResult {
+  ok: boolean;
+  accepted: boolean;
+  reason: string;
 }
 
 export interface SerializedGameState {
   mode: GameMode;
   round: number;
   currentPlayerIndex: number;
+  lastDiceTotal: number;
   players: PlayerState[];
   tiles: TileState[];
-  lastDice: [number, number] | null;
-  winnerId: string | null;
   logs: string[];
+  winnerId: string | null;
 }
 
 export class GameEngine {
-  private mode: GameMode;
+  private mode: GameMode = 'SOLO_VS_AI';
   private round = 1;
   private currentPlayerIndex = 0;
-  private consecutiveDoubles = 0;
+  private lastDiceTotal = 7;
+  private lastRollWasDoubles = false;
   private players: PlayerState[] = [];
   private tiles: TileState[] = [];
-  private lastDice: [number, number] | null = null;
-  private winnerId: string | null;
   private logs: string[] = [];
+  private winnerId: string | null = null;
 
-  constructor(mode: GameMode = 'SOLO_VS_AI', humanCount = 1, initialGold = 1500) {
-    this.mode = mode;
-    this.winnerId = null;
-    this.initGame(mode, humanCount, initialGold);
+  constructor(
+    mode: GameMode = 'SOLO_VS_AI',
+    humanCount = 1,
+    initialGold = GAME_RULES_CONFIG.startingGold,
+    primaryHumanCharacter?: CharacterId
+  ) {
+    this.initGame(mode, humanCount, initialGold, primaryHumanCharacter);
   }
 
-  public initGame(mode: GameMode, humanCount = 1, initialGold = 1500): void {
+  public initGame(
+    mode: GameMode,
+    humanCount = 1,
+    initialGold = GAME_RULES_CONFIG.startingGold,
+    primaryHumanCharacter?: CharacterId
+  ): void {
     this.mode = mode;
     this.round = 1;
     this.currentPlayerIndex = 0;
-    this.consecutiveDoubles = 0;
-    this.lastDice = null;
+    this.lastDiceTotal = 7;
+    this.lastRollWasDoubles = false;
     this.winnerId = null;
     this.logs = [];
 
-    const effectiveHumans =
-      mode === 'SOLO_VS_AI' ? 1 : mode === 'ONLINE_ROOM' ? 4 : Math.max(1, Math.min(4, humanCount));
+    const clampedHumans = Math.max(1, Math.min(4, humanCount));
 
-    this.players = CHARACTER_CONFIGS.map((cfg, idx) => {
-      const isBot = idx >= effectiveHumans;
+    // Order CHARACTER_CONFIGS so `primaryHumanCharacter` (if chosen in the 3D Lobby) is slot 0 (Player 1)
+    const orderedChars = [...CHARACTER_CONFIGS];
+    if (primaryHumanCharacter) {
+      const chosenIdx = orderedChars.findIndex((c) => c.id === primaryHumanCharacter);
+      if (chosenIdx > 0) {
+        const [chosen] = orderedChars.splice(chosenIdx, 1);
+        orderedChars.unshift(chosen);
+      }
+    }
+
+    this.players = orderedChars.map((cfg, idx) => {
+      const isBot = mode === 'SOLO_VS_AI' ? idx >= 1 : idx >= clampedHumans;
       return {
         id: `p${idx + 1}`,
-        name: isBot ? `${cfg.name} (AI)` : cfg.name,
         characterId: cfg.id,
-        locomotion: cfg.locomotion,
-        color: cfg.primaryColor,
+        name: isBot ? `${cfg.name} (AI)` : cfg.name,
+        color: cfg.color,
         emoji: cfg.emoji,
-        isBot,
         gold: initialGold,
         position: 0,
+        isBot,
+        bankrupt: false,
         skipTurns: 0,
         inJail: false,
+        jailTurns: 0,
         jailFreeCards: 0,
-        bankrupt: false
+        consecutiveDoubles: 0
       };
     });
 
@@ -157,10 +181,19 @@ export class GameEngine {
       ownerId: null,
       level: 0,
       festivalMultiplier: 1,
+      festivalTurnsLeft: 0,
       mortgaged: false
     }));
 
-    this.addLog(`🎮 Bắt đầu ván mới (${mode}) trên Bản Đồ 40 Ô! Mỗi người nhận $${initialGold}.`);
+    this.addLog(
+      `🌟 Khởi tranh Đảo Nổi Voxel 40 Ô! Mỗi tỷ phú khởi đầu với $${initialGold}.`
+    );
+
+    gameEventBus.emit('lobby:started', {
+      mode,
+      humanCount: clampedHumans,
+      primaryCharacter: this.players[0].characterId
+    });
   }
 
   public getMode(): GameMode {
@@ -175,10 +208,10 @@ export class GameEngine {
     return this.players;
   }
 
-  public getPlayerById(playerId: string): PlayerState {
-    const found = this.players.find((p) => p.id === playerId);
+  public getPlayerById(id: string): PlayerState {
+    const found = this.players.find((p) => p.id === id);
     if (!found) {
-      throw new Error(`Player not found: ${playerId}`);
+      throw new Error(`Player not found: ${id}`);
     }
     return found;
   }
@@ -191,653 +224,454 @@ export class GameEngine {
     return this.currentPlayerIndex;
   }
 
-  public getTileConfig(index: number): TileConfig {
-    return BOARD_TILES[((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
-  }
-
   public getTileState(index: number): TileState {
     return this.tiles[((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
+  }
+
+  public getTileConfig(index: number): TileConfig {
+    return BOARD_TILES[((index % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE];
   }
 
   public getAllTileStates(): TileState[] {
     return this.tiles;
   }
 
-  public getWinner(): PlayerState | null {
-    if (!this.winnerId) return null;
-    return this.players.find((p) => p.id === this.winnerId) || null;
-  }
-
   public getLogs(): string[] {
     return this.logs;
   }
 
-  public addLog(entry: string): void {
-    this.logs.unshift(entry);
+  public getWinner(): PlayerState | null {
+    if (!this.winnerId) return null;
+    return this.players.find((p) => p.id === this.winnerId) ?? null;
+  }
+
+  public addLog(msg: string): void {
+    this.logs.unshift(`[Vòng ${this.round}] ${msg}`);
     if (this.logs.length > 60) {
       this.logs.pop();
     }
   }
 
-  public sendPlayerToJail(playerId: string, reason = 'Vi phạm quy định đô thị'): void {
+  /**
+   * Calculates a player's Total Net Worth (Gold + Owned Property Values + Building Upgrades - Mortgaged).
+   */
+  public calculatePlayerNetWorth(playerId: string): number {
     const player = this.getPlayerById(playerId);
-    player.position = 10;
-    player.inJail = true;
-    player.skipTurns = 0;
-    this.consecutiveDoubles = 0;
-    this.addLog(
-      `🚓 VÀO TÙ! ${player.emoji} ${player.name} bị chuyển thẳng vào #10 Nhà Tù Chí Hòa (${reason})!`
-    );
-  }
+    if (player.bankrupt) return 0;
 
-  public payJailFine(playerId: string, fineAmount = 50): { ok: boolean; reason?: string } {
-    const player = this.getPlayerById(playerId);
-    if (!player.inJail) {
-      return { ok: false, reason: 'Người chơi hiện không ở trong tù.' };
-    }
-    if (player.gold < fineAmount) {
-      return { ok: false, reason: `Không đủ $${fineAmount} để nộp phạt bảo lãnh ra tù.` };
-    }
-    player.gold -= fineAmount;
-    player.inJail = false;
-    player.skipTurns = 0;
-    this.addLog(
-      `💸 BẢO LÃNH RA TÙ! ${player.emoji} ${player.name} nộp phạt -$${fineAmount} và rời Nhà Tù Chí Hòa ngay lập tức!`
-    );
-    return { ok: true };
-  }
-
-  public useJailFreeCard(playerId: string): { ok: boolean; reason?: string } {
-    const player = this.getPlayerById(playerId);
-    if (!player.inJail) {
-      return { ok: false, reason: 'Người chơi hiện không ở trong tù.' };
-    }
-    const cards = player.jailFreeCards ?? 0;
-    if (cards <= 0) {
-      return { ok: false, reason: 'Bạn không có Thẻ Ra Tù Miễn Phí.' };
-    }
-    player.jailFreeCards = cards - 1;
-    player.inJail = false;
-    player.skipTurns = 0;
-    this.addLog(
-      `🕊️ THẺ RA TÙ MIỄN PHÍ! ${player.emoji} ${player.name} xuất trình Thẻ Ân Xá và rời Nhà Tù Chí Hòa miễn phí!`
-    );
-    return { ok: true };
-  }
-
-  public attemptRollDoublesInJail(
-    playerId: string,
-    forced?: [number, number]
-  ): { d1: number; d2: number; total: number; escaped: boolean } {
-    const player = this.getPlayerById(playerId);
-    const d1 = forced ? forced[0] : Math.floor(Math.random() * 6) + 1;
-    const d2 = forced ? forced[1] : Math.floor(Math.random() * 6) + 1;
-    this.lastDice = [d1, d2];
-    const escaped = d1 === d2;
-    this.consecutiveDoubles = 0;
-
-    if (escaped) {
-      player.inJail = false;
-      player.skipTurns = 0;
-      this.addLog(
-        `🎲 ĐỔ ĐÔI THOÁT TÙ! ${player.emoji} ${player.name} tung được cặp đôi (${d1}+${d2} = ${d1 + d2}) và được trả tự do khỏi Nhà Tù Chí Hòa!`
-      );
-    } else {
-      // Served 1 full turn in jail; released for the next round
-      player.inJail = false;
-      player.skipTurns = 0;
-      this.addLog(
-        `🔒 CHƯA ĐỔ ĐÔI! ${player.emoji} ${player.name} tung ${d1}+${d2} (Không phải cặp đôi) — Chấp hành án tại Nhà Tù Chí Hòa lượt này.`
-      );
-    }
-
-    return { d1, d2, total: d1 + d2, escaped };
-  }
-
-  public rollDice(forced?: [number, number]): {
-    d1: number;
-    d2: number;
-    total: number;
-    isDoubles: boolean;
-    sentToJailByTripleDoubles?: boolean;
-  } {
-    const d1 = forced ? forced[0] : Math.floor(Math.random() * 6) + 1;
-    const d2 = forced ? forced[1] : Math.floor(Math.random() * 6) + 1;
-    this.lastDice = [d1, d2];
-    const isDoubles = d1 === d2;
-    const p = this.getCurrentPlayer();
-
-    if (isDoubles) {
-      this.consecutiveDoubles += 1;
-      if (this.consecutiveDoubles >= 3) {
-        this.sendPlayerToJail(p.id, `Đổ đôi 3 lần liên tiếp (${d1}+${d2})`);
-        return {
-          d1,
-          d2,
-          total: d1 + d2,
-          isDoubles,
-          sentToJailByTripleDoubles: true
-        };
+    let totalAssets = player.gold;
+    for (const st of this.tiles) {
+      if (st.ownerId !== playerId) continue;
+      const cfg = this.getTileConfig(st.index);
+      const basePrice = cfg.price ?? 0;
+      if (st.mortgaged) {
+        totalAssets += Math.round(basePrice * (1 - GAME_RULES_CONFIG.mortgageRatePct / 100));
+      } else {
+        const upCost = this.getEffectiveUpgradeCost(playerId, st.index);
+        const upgradesVal = Math.max(0, st.level - 1) * upCost;
+        totalAssets += basePrice + upgradesVal;
       }
-      this.addLog(
-        `✨ ĐỔ ĐÔI (${this.consecutiveDoubles}/2)! ${p.emoji} ${p.name} tung được ${d1} + ${d2} = ${d1 + d2} bước (Thưởng thêm lượt)!`
-      );
-    } else {
-      this.consecutiveDoubles = 0;
-      this.addLog(`🎲 ${p.emoji} ${p.name} tung xúc xắc: ${d1} + ${d2} = ${d1 + d2} bước!`);
     }
-
-    return { d1, d2, total: d1 + d2, isDoubles, sentToJailByTripleDoubles: false };
+    return totalAssets;
   }
 
-  public canTakeExtraDoublesTurn(): boolean {
-    const p = this.getCurrentPlayer();
-    return (
-      !p.bankrupt &&
-      !p.inJail &&
-      p.skipTurns === 0 &&
-      this.consecutiveDoubles > 0 &&
-      this.consecutiveDoubles <= 2
-    );
+  /**
+   * Checks if `ownerId` owns EVERY tile belonging to `group` (Complete Monopoly Set -> +50% rent bonus!)
+   */
+  public ownsFullColorGroup(ownerId: string, group: BoardColorGroup): boolean {
+    if (group === 'SPECIAL' || group === 'RAILROAD' || group === 'UTILITY') return false;
+    const groupTiles = BOARD_TILES.filter((t) => t.type === 'PROPERTY' && t.group === group);
+    if (groupTiles.length === 0) return false;
+    return groupTiles.every((t) => this.getTileState(t.index).ownerId === ownerId);
   }
 
-  public getStartBonus(player: PlayerState): number {
-    // FEAT-03: Alex's passive ("Nhà Thám Hiểm") grants extra bonus when passing Start
-    return player.characterId === 'alex'
-      ? GAME_RULES_CONFIG.alexStartBonus
-      : GAME_RULES_CONFIG.startBonus;
-  }
-
-  public getEffectiveUpgradeCost(playerId: string, tileIndex: number): number {
-    const player = this.getPlayerById(playerId);
-    const cfg = this.getTileConfig(tileIndex);
-    const baseCost = cfg.upgradeCost ?? 80;
-    // FEAT-03: Steve's passive ("Thợ Xây Lành Nghề") reduces building upgrade cost
-    const factor = 1 - GAME_RULES_CONFIG.steveUpgradeDiscountPct / 100;
-    return player.characterId === 'steve' ? Math.round(baseCost * factor) : baseCost;
-  }
-
-  public getEffectiveTaxAmount(playerId: string, baseTax: number): number {
-    const player = this.getPlayerById(playerId);
-    // FEAT-03: Creeper's passive ("Giáp Thuốc Nổ") reduces Royal/Luxury Tax
-    const factor = 1 - GAME_RULES_CONFIG.creeperTaxDiscountPct / 100;
-    return player.characterId === 'creeper' ? Math.round(baseTax * factor) : baseTax;
-  }
-
-  public stepPlayerOneTile(playerId: string): {
-    oldPosition: number;
-    newPosition: number;
-    passedStart: boolean;
-  } {
-    const player = this.getPlayerById(playerId);
-    const oldPosition = player.position;
-    const newPosition = (oldPosition + 1) % BOARD_SIZE;
-    player.position = newPosition;
-
-    const passedStart = newPosition === 0;
-    if (passedStart) {
-      const bonus = this.getStartBonus(player);
-      player.gold += bonus;
-      this.addLog(
-        `🚩 ${player.emoji} ${player.name} đi qua Đại Lộ Khởi Hành và nhận +$${bonus}${
-          player.characterId === 'alex' ? ' (Nội tại Alex +$40)' : ''
-        }!`
-      );
-    }
-
-    return { oldPosition, newPosition, passedStart };
-  }
-
+  /**
+   * UX-02: Returns `{ ownedCount, totalCount, isMonopoly }` for a given player and color group
+   */
   public getPlayerColorGroupOwnership(
-    ownerId: string,
-    colorGroup: ColorGroupId
+    playerId: string,
+    group: BoardColorGroup
   ): { ownedCount: number; totalCount: number; isMonopoly: boolean } {
-    const groupTiles = BOARD_TILES.filter(
-      (t) => t.type === 'PROPERTY' && t.colorGroup === colorGroup
-    );
-    const ownedCount = groupTiles.filter((t) => this.tiles[t.index].ownerId === ownerId).length;
+    const groupTiles = BOARD_TILES.filter((t) => t.type === 'PROPERTY' && t.group === group);
+    const totalCount = groupTiles.length;
+    if (totalCount === 0) {
+      return { ownedCount: 0, totalCount: 0, isMonopoly: false };
+    }
+    const ownedCount = groupTiles.filter(
+      (t) => this.getTileState(t.index).ownerId === playerId
+    ).length;
     return {
       ownedCount,
-      totalCount: groupTiles.length,
-      isMonopoly: groupTiles.length > 0 && ownedCount === groupTiles.length
+      totalCount,
+      isMonopoly: ownedCount === totalCount
     };
   }
 
-  public ownsFullColorGroup(ownerId: string, colorGroup?: ColorGroupId): boolean {
-    if (!colorGroup) return false;
-    const groupTiles = BOARD_TILES.filter(
-      (t) => t.type === 'PROPERTY' && t.colorGroup === colorGroup
-    );
-    return groupTiles.length > 0 && groupTiles.every((t) => this.tiles[t.index].ownerId === ownerId);
-  }
-
-  public countOwnedRailroads(ownerId: string): number {
-    return BOARD_TILES.filter(
-      (t) =>
-        t.type === 'RAILROAD' &&
-        this.tiles[t.index].ownerId === ownerId &&
-        !this.tiles[t.index].mortgaged
-    ).length;
-  }
-
-  public countOwnedUtilities(ownerId: string): number {
-    return BOARD_TILES.filter(
-      (t) =>
-        t.type === 'UTILITY' &&
-        this.tiles[t.index].ownerId === ownerId &&
-        !this.tiles[t.index].mortgaged
-    ).length;
-  }
-
-  public getLastDiceTotal(): number {
-    return this.lastDice ? this.lastDice[0] + this.lastDice[1] : 7;
-  }
-
-  public calculateRent(tileIndex: number): number {
-    const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-    if (!state.ownerId || state.mortgaged || !cfg.rents) return 0;
-
-    if (cfg.type === 'RAILROAD') {
-      const count = Math.max(1, Math.min(4, this.countOwnedRailroads(state.ownerId)));
-      return cfg.rents[count - 1] * state.festivalMultiplier;
-    }
-
-    if (cfg.type === 'UTILITY') {
-      const count = Math.max(1, Math.min(2, this.countOwnedUtilities(state.ownerId)));
-      const factorOrFlat = cfg.rents[count - 1] ?? (count >= 2 ? 10 : 4);
-      // Wikipedia Monopoly rule: Utility rent = Dice Total × 4 (1 owned) or × 10 (both owned)
-      if (factorOrFlat <= 25) {
-        return this.getLastDiceTotal() * factorOrFlat * state.festivalMultiplier;
-      }
-      return factorOrFlat * state.festivalMultiplier;
-    }
-
-    const levelIdx = Math.max(0, Math.min(3, state.level - 1));
-    let rent = cfg.rents[levelIdx];
-
-    if (this.ownsFullColorGroup(state.ownerId, cfg.colorGroup)) {
-      rent = Math.round(rent * 1.5);
-    }
-
-    rent = Math.round(rent * state.festivalMultiplier);
-    return rent;
-  }
-
-  public getFormattedRentReason(tileIndex: number): string {
-    const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-    const baseReason = cfg.rentReason || `dừng chân tại khu vực [${cfg.name}]`;
-    if (cfg.type === 'UTILITY' && state.ownerId) {
-      const count = Math.max(1, Math.min(2, this.countOwnedUtilities(state.ownerId)));
-      const mult = cfg.rents?.[count - 1] ?? (count >= 2 ? 10 : 4);
-      const diceSum = this.getLastDiceTotal();
-      return `${baseReason} (Sở hữu ${count}/2 Công ty Tiện Ích: Xúc xắc ${diceSum} × ${mult})`;
-    }
-    if (cfg.type === 'RAILROAD' && state.ownerId) {
-      const count = Math.max(1, Math.min(4, this.countOwnedRailroads(state.ownerId)));
-      return `${baseReason} (Chủ ga sở hữu ${count}/4 Tuyến Đường Sắt)`;
-    }
-    if (cfg.type === 'PROPERTY' && state.level > 0) {
-      const tier = BUILDING_TIER_NAMES[state.level] || BUILDING_TIER_NAMES[1];
-      return `${baseReason} (Công trình: ${tier.icon} ${tier.name} Cấp ${state.level}${
-        state.festivalMultiplier > 1 ? ` • Lễ Hội x${state.festivalMultiplier}` : ''
-      })`;
-    }
-    return baseReason;
-  }
-
-  public buyProperty(
-    playerId: string,
-    tileIndex = this.getPlayerById(playerId).position
-  ): {
-    ok: boolean;
-    reason?: string;
-  } {
-    const player = this.getPlayerById(playerId);
-    const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-
-    if (cfg.type !== 'PROPERTY' && cfg.type !== 'RAILROAD' && cfg.type !== 'UTILITY') {
-      return { ok: false, reason: 'Ô này không phải là tài sản có thể mua.' };
-    }
-    if (state.ownerId !== null) {
-      return { ok: false, reason: 'Ô này đã có chủ sở hữu.' };
-    }
-    const price = cfg.price ?? 100;
-    if (player.gold < price) {
-      return { ok: false, reason: 'Không đủ $ để mua ô này.' };
-    }
-
-    player.gold -= price;
-    state.ownerId = player.id;
-    state.level = 1;
-    this.addLog(`🏠 ${player.emoji} ${player.name} đã mua [${cfg.name}] với giá $${price}!`);
-    return { ok: true };
-  }
-
   /**
-   * Wikipedia Monopoly "Even Building" rule:
-   * When a player owns a full color group (or multiple tiles in the same color group),
-   * buildings must be constructed evenly across the group (difference <= 1 level).
+   * Character Passive 1: Steve gets -15% discount on all building upgrades
    */
-  public canUpgradePropertyEvenly(
-    playerId: string,
-    tileIndex: number
-  ): { allowed: boolean; reason?: string } {
+  public getEffectiveUpgradeCost(playerId: string, tileIndex: number): number {
     const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-    if (cfg.type !== 'PROPERTY') {
-      return { allowed: false, reason: 'Chỉ có thể nâng cấp nhà trên Ô Đất.' };
-    }
-    if (state.ownerId !== playerId) {
-      return { allowed: false, reason: 'Bạn không phải chủ sở hữu ô đất này.' };
-    }
-    if (state.mortgaged) {
-      return { allowed: false, reason: 'Ô đất đang thế chấp, hãy giải chấp trước khi xây nhà.' };
-    }
-    if (state.level >= 4) {
-      return { allowed: false, reason: 'Công trình đã đạt cấp tối đa (Lâu Đài Vương Miện).' };
-    }
-
-    if (cfg.colorGroup && this.ownsFullColorGroup(playerId, cfg.colorGroup)) {
-      const groupTiles = BOARD_TILES.filter(
-        (t) => t.type === 'PROPERTY' && t.colorGroup === cfg.colorGroup
-      );
-      if (groupTiles.some((t) => this.tiles[t.index].mortgaged)) {
-        return {
-          allowed: false,
-          reason: 'Có ô đất cùng cụm màu đang thế chấp, không thể nâng cấp nhà!'
-        };
-      }
-      const minLevel = Math.min(...groupTiles.map((t) => this.tiles[t.index].level));
-      if (state.level > minLevel) {
-        return {
-          allowed: false,
-          reason: `Luật Xây Nhà Đồng Đều (Even Building): Phải nâng cấp các ô cùng màu đang ở Cấp ${minLevel} trước!`
-        };
-      }
-    }
-
-    return { allowed: true };
-  }
-
-  public upgradeProperty(
-    playerId: string,
-    tileIndex = this.getPlayerById(playerId).position
-  ): { ok: boolean; newLevel: number; reason?: string } {
+    const baseCost = cfg.upgradeCost ?? 0;
     const player = this.getPlayerById(playerId);
-    const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-
-    const evenCheck = this.canUpgradePropertyEvenly(playerId, tileIndex);
-    if (!evenCheck.allowed) {
-      return { ok: false, newLevel: state.level, reason: evenCheck.reason };
+    if (player.characterId === 'steve') {
+      return Math.round(baseCost * (1 - GAME_RULES_CONFIG.steveUpgradeDiscountPct / 100));
     }
-
-    const cost = this.getEffectiveUpgradeCost(playerId, tileIndex);
-    if (player.gold < cost) {
-      return { ok: false, newLevel: state.level, reason: 'Không đủ $ để nâng cấp công trình.' };
-    }
-
-    player.gold -= cost;
-    state.level += 1;
-    const tierLabel =
-      state.level === 2
-        ? 'Nhà Gỗ Minecraft'
-        : state.level === 3
-          ? 'Biệt Thự 2 Tầng'
-          : 'Lâu Đài Vương Miện';
-
-    this.addLog(
-      `⬆️ ${player.emoji} ${player.name} nâng cấp [${cfg.name}] lên Cấp ${state.level} (${tierLabel}) (-$${cost}${
-        player.characterId === 'steve' ? ` • Nội tại Steve -${GAME_RULES_CONFIG.steveUpgradeDiscountPct}%` : ''
-      })!`
-    );
-    return { ok: true, newLevel: state.level };
+    return baseCost;
   }
 
   /**
-   * Wikipedia Monopoly Mortgage (50% of purchase price) & Unmortgage (55% = 50% + 10% interest)
+   * Character Passive 3: Creeper gets -20% discount on Royal / Luxury Tax tiles (#4 & #38)
+   */
+  public getEffectiveTaxAmount(playerId: string, baseTax: number): number {
+    const player = this.getPlayerById(playerId);
+    if (player.characterId === 'creeper') {
+      return Math.round(baseTax * (1 - GAME_RULES_CONFIG.creeperTaxDiscountPct / 100));
+    }
+    return baseTax;
+  }
+
+  /**
+   * Standard Monopoly Rule: Checks if `playerId` can upgrade `tileIndex` under the Even-Build Rule
+   * (when owning a full color group, a tile cannot be upgraded more than 1 level ahead of its siblings).
+   */
+  public canUpgradePropertyEvenly(playerId: string, tileIndex: number): boolean {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    if (cfg.type !== 'PROPERTY' || state.ownerId !== playerId || state.mortgaged) return false;
+    if (state.level >= 4) return false;
+
+    if (this.ownsFullColorGroup(playerId, cfg.group)) {
+      const groupLevels = BOARD_TILES.filter(
+        (t) => t.type === 'PROPERTY' && t.group === cfg.group
+      ).map((t) => this.getTileState(t.index).level);
+      const minLevel = Math.min(...groupLevels);
+      return state.level <= minLevel;
+    }
+    return true;
+  }
+
+  /**
+   * Standard Monopoly Rule: Mortgage a property for 50% of its total invested value.
+   * Uses `getEffectiveUpgradeCost` so Steve's -15% upgrade discount cannot be exploited for free gold.
    */
   public getMortgageValue(tileIndex: number): number {
     const cfg = this.getTileConfig(tileIndex);
-    return Math.round((cfg.price ?? 100) * 0.5);
+    const state = this.getTileState(tileIndex);
+    const basePrice = cfg.price ?? 0;
+    const upCost = state.ownerId
+      ? this.getEffectiveUpgradeCost(state.ownerId, tileIndex)
+      : (cfg.upgradeCost ?? 0);
+    const upgradesInvested = Math.max(0, state.level - 1) * upCost;
+    return Math.round((basePrice + upgradesInvested) * (GAME_RULES_CONFIG.mortgageRatePct / 100));
   }
 
   public getUnmortgageCost(tileIndex: number): number {
-    return Math.round(this.getMortgageValue(tileIndex) * 1.1);
+    const cfg = this.getTileConfig(tileIndex);
+    return Math.round((cfg.price ?? 0) * (GAME_RULES_CONFIG.unmortgageRatePct / 100));
   }
 
   public mortgageProperty(
     playerId: string,
     tileIndex: number
-  ): { ok: boolean; mortgageValue: number; newGold: number; reason?: string } {
+  ): { ok: boolean; payout: number; mortgageValue: number; reason?: string } {
     const player = this.getPlayerById(playerId);
     const state = this.getTileState(tileIndex);
     const cfg = this.getTileConfig(tileIndex);
 
     if (state.ownerId !== playerId) {
-      return { ok: false, mortgageValue: 0, newGold: player.gold, reason: 'Không phải đất của bạn.' };
+      return { ok: false, payout: 0, mortgageValue: 0, reason: 'NOT_OWNER' };
     }
     if (state.mortgaged) {
-      return { ok: false, mortgageValue: 0, newGold: player.gold, reason: 'Ô này đã được thế chấp.' };
+      return { ok: false, payout: 0, mortgageValue: 0, reason: 'ALREADY_MORTGAGED' };
     }
 
-    const upgradeRefund =
-      cfg.type === 'PROPERTY' && state.level > 1
-        ? Math.round((state.level - 1) * (cfg.upgradeCost ?? 50) * 0.5)
-        : 0;
-    const mortgageValue = this.getMortgageValue(tileIndex) + upgradeRefund;
-
-    state.level = 1;
+    const payout = this.getMortgageValue(tileIndex);
     state.mortgaged = true;
-    player.gold += mortgageValue;
+    state.level = Math.min(1, state.level);
+    player.gold += payout;
 
     this.addLog(
-      `📜 THẾ CHẤP! ${player.emoji} ${player.name} thế chấp [${cfg.name}] cho Ngân Hàng nhận +$${mortgageValue} (Tạm ngưng thu tiền thuê).`
+      `${player.emoji} ${player.name} thế chấp ${cfg.name} cho Ngân hàng và nhận +$${payout} tiền mặt!`
     );
-    return { ok: true, mortgageValue, newGold: player.gold };
+    return { ok: true, payout, mortgageValue: payout };
   }
 
   public unmortgageProperty(
     playerId: string,
     tileIndex: number
-  ): { ok: boolean; unmortgageCost: number; newGold: number; reason?: string } {
+  ): { ok: boolean; cost: number; unmortgageCost: number; reason?: string } {
     const player = this.getPlayerById(playerId);
     const state = this.getTileState(tileIndex);
     const cfg = this.getTileConfig(tileIndex);
 
     if (state.ownerId !== playerId || !state.mortgaged) {
-      return {
-        ok: false,
-        unmortgageCost: 0,
-        newGold: player.gold,
-        reason: 'Ô đất không ở trạng thái thế chấp.'
-      };
+      return { ok: false, cost: 0, unmortgageCost: 0, reason: 'NOT_MORTGAGED' };
     }
-
     const cost = this.getUnmortgageCost(tileIndex);
     if (player.gold < cost) {
-      return {
-        ok: false,
-        unmortgageCost: cost,
-        newGold: player.gold,
-        reason: 'Không đủ $ để giải chấp (gồm 10% lãi ngân hàng).'
-      };
+      return { ok: false, cost, unmortgageCost: cost, reason: 'INSUFFICIENT_GOLD' };
     }
 
     player.gold -= cost;
     state.mortgaged = false;
     this.addLog(
-      `🔓 GIẢI CHẤP! ${player.emoji} ${player.name} thanh toán -$${cost} (gồm 10% lãi) để chuộc lại [${cfg.name}]!`
+      `${player.emoji} ${player.name} chuộc lại giấy tờ ${cfg.name} với giá $${cost} (gồm 10% lãi Ngân hàng)!`
     );
-    return { ok: true, unmortgageCost: cost, newGold: player.gold };
+    return { ok: true, cost, unmortgageCost: cost };
   }
 
   /**
-   * Wikipedia Monopoly Public Auction when a player declines to buy an unowned property!
+   * Standard Monopoly Rule: Public Property Auction when a player passes on buying an unowned property!
    */
   public runPropertyAuction(
     tileIndex: number,
-    humanBids?: Record<string, number>
-  ): {
-    winnerId: string | null;
-    winnerName?: string;
-    winningBid: number;
-  } {
+    manualHumanBids?: Record<string, number>
+  ): { winnerId: string | null; winningBid: number; tileName: string } {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
-    if (state.ownerId !== null) {
-      return { winnerId: null, winningBid: 0 };
-    }
+    const basePrice = cfg.price ?? 100;
 
-    const listPrice = cfg.price ?? 100;
-    let bestBidder: PlayerState | null = null;
-    let highestBid = 0;
+    let highestBidder: PlayerState | null = null;
+    let highestBid = Math.max(20, Math.round(basePrice * 0.4));
 
     for (const p of this.players) {
-      if (p.bankrupt || p.gold < 20) continue;
-
+      if (p.bankrupt) continue;
       let candidateBid = 0;
-      if (humanBids && typeof humanBids[p.id] === 'number') {
-        candidateBid = Math.min(p.gold, Math.floor(humanBids[p.id]));
+
+      if (!p.isBot && manualHumanBids && typeof manualHumanBids[p.id] === 'number') {
+        candidateBid = manualHumanBids[p.id];
       } else if (p.isBot) {
-        const ownsSameGroup =
-          cfg.colorGroup &&
-          BOARD_TILES.some(
-            (t) => t.colorGroup === cfg.colorGroup && this.tiles[t.index].ownerId === p.id
-          );
-        const valuationFactor = ownsSameGroup ? 0.95 : 0.75;
-        const maxWilling = Math.min(p.gold - 40, Math.round(listPrice * valuationFactor));
-        if (maxWilling >= 20) {
-          candidateBid = maxWilling;
+        const groupSiblings = BOARD_TILES.filter(
+          (t) => t.group === cfg.group && this.getTileState(t.index).ownerId === p.id
+        ).length;
+        const maxWilling = Math.round(basePrice * (groupSiblings > 0 ? 1.15 : 0.85));
+        if (p.gold - 80 >= highestBid + 10 && highestBid + 15 <= maxWilling) {
+          candidateBid = Math.min(p.gold - 60, maxWilling);
         }
       }
 
-      if (candidateBid > highestBid && candidateBid <= p.gold) {
+      if (candidateBid > highestBid && p.gold >= candidateBid) {
         highestBid = candidateBid;
-        bestBidder = p;
+        highestBidder = p;
       }
     }
 
-    if (!bestBidder || highestBid < 10) {
-      this.addLog(`🔨 Phiên đấu giá [${cfg.name}] kết thúc mà không có ai trả giá.`);
-      return { winnerId: null, winningBid: 0 };
+    if (highestBidder) {
+      highestBidder.gold -= highestBid;
+      state.ownerId = highestBidder.id;
+      state.level = 1;
+      state.mortgaged = false;
+      this.addLog(
+        `🔨 ĐẤU GIÁ THÀNH CÔNG: ${highestBidder.emoji} ${highestBidder.name} thắng đấu giá ${cfg.name} với mức $${highestBid}!`
+      );
+      gameEventBus.emit('property:bought', {
+        playerId: highestBidder.id,
+        tileIndex,
+        price: highestBid
+      });
+      return { winnerId: highestBidder.id, winningBid: highestBid, tileName: cfg.name };
     }
 
-    bestBidder.gold -= highestBid;
-    state.ownerId = bestBidder.id;
-    state.level = 1;
-    state.mortgaged = false;
-
-    this.addLog(
-      `🔨 ĐẤU GIÁ THÀNH CÔNG! ${bestBidder.emoji} ${bestBidder.name} đấu giá thắng [${cfg.name}] với mức $${highestBid} (Giá gốc $${listPrice})!`
-    );
-
-    return {
-      winnerId: bestBidder.id,
-      winnerName: bestBidder.name,
-      winningBid: highestBid
-    };
+    this.addLog(`🔨 Không ai trả giá đủ cao cho ${cfg.name}, ô đất tiếp tục thuộc về Ngân hàng.`);
+    return { winnerId: null, winningBid: 0, tileName: cfg.name };
   }
 
   /**
-   * FEAT-01: Hostile Takeover / Buyout calculation.
-   * Properties at Level 4 (Castle) cannot be bought out!
+   * FEAT-01: Hostile Takeover / Buyout Cost (`160%` of base price + upgraded building value).
+   * Creeper Passive Enhancement: Opponents attempting a Hostile Buyout on a property owned by `creeper`
+   * must pay an extra `+15%` TNT Hazard Surcharge (`1.15x`).
+   * Level 4 Voxel Castles are immune to buyout (`returns null`).
    */
   public getBuyoutCost(tileIndex: number): number | null {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
-    if (!state.ownerId) return null;
-    if (cfg.type !== 'PROPERTY' && cfg.type !== 'RAILROAD' && cfg.type !== 'UTILITY') {
+    if (cfg.type !== 'PROPERTY' || !state.ownerId || state.level >= 4) {
       return null;
     }
-    if (cfg.type === 'PROPERTY' && state.level >= 4) {
-      return null; // Crown Castles are immune to Hostile Takeover
+    const basePrice = cfg.price ?? 0;
+    const upgradesValue = Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 0);
+    let cost = Math.round(
+      (basePrice + upgradesValue) * (GAME_RULES_CONFIG.hostileBuyoutMultiplierPct / 100)
+    );
+
+    const currentOwner = this.getPlayerById(state.ownerId);
+    if (currentOwner.characterId === 'creeper') {
+      cost = Math.round(cost * 1.15);
     }
-    const basePrice = cfg.price ?? 100;
-    const investedUpgrades =
-      cfg.type === 'PROPERTY' ? Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 80) : 0;
-    return Math.round((basePrice + investedUpgrades) * GAME_RULES_CONFIG.buyoutMultiplier);
+    return cost;
   }
 
+  /**
+   * FEAT-01: Executes a Hostile Property Buyout from the current owner after landing on their tile
+   */
   public buyoutOpponentProperty(
     buyerId: string,
-    tileIndex = this.getPlayerById(buyerId).position
-  ): {
-    ok: boolean;
-    buyoutCost: number;
-    previousOwnerId: string;
-    previousOwnerName: string;
-    reason?: string;
-  } {
+    tileIndex: number
+  ): { ok: boolean; cost: number; prevOwnerId: string | null; reason?: string } {
     const buyer = this.getPlayerById(buyerId);
-    const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
-    if (!state.ownerId || state.ownerId === buyer.id) {
-      return {
-        ok: false,
-        buyoutCost: 0,
-        previousOwnerId: '',
-        previousOwnerName: '',
-        reason: 'Ô đất này không thuộc sở hữu đối thủ.'
-      };
-    }
-
+    const cfg = this.getTileConfig(tileIndex);
     const buyoutCost = this.getBuyoutCost(tileIndex);
-    if (buyoutCost === null) {
-      return {
-        ok: false,
-        buyoutCost: 0,
-        previousOwnerId: state.ownerId,
-        previousOwnerName: '',
-        reason: 'Lâu Đài Vương Miện (Cấp 4) bất khả xâm phạm, không thể mua đứt!'
-      };
-    }
 
+    if (buyoutCost === null || !state.ownerId || state.ownerId === buyerId) {
+      return { ok: false, cost: 0, prevOwnerId: state.ownerId, reason: 'CANNOT_BUYOUT' };
+    }
     if (buyer.gold < buyoutCost) {
-      return {
-        ok: false,
-        buyoutCost,
-        previousOwnerId: state.ownerId,
-        previousOwnerName: '',
-        reason: 'Không đủ $ để thôn tính ô đất này.'
-      };
+      return { ok: false, cost: buyoutCost, prevOwnerId: state.ownerId, reason: 'INSUFFICIENT_GOLD' };
     }
 
-    const previousOwner = this.getPlayerById(state.ownerId);
+    const prevOwner = this.getPlayerById(state.ownerId);
     buyer.gold -= buyoutCost;
-    previousOwner.gold += buyoutCost;
+    prevOwner.gold += buyoutCost;
     state.ownerId = buyer.id;
 
+    const creeperNote = prevOwner.characterId === 'creeper' ? ' (gồm +15% Phí Răn Đe TNT)' : '';
     this.addLog(
-      `⚔️ THÔN TÍNH! ${buyer.emoji} ${buyer.name} chi $${buyoutCost} mua đứt [${cfg.name}] từ tay ${previousOwner.emoji} ${previousOwner.name}!`
+      `⚔️ THÔN TÍNH ĐỊA BÀN: ${buyer.emoji} ${buyer.name} chi $${buyoutCost}${creeperNote} mua đứt ${cfg.name} từ tay ${prevOwner.name}!`
     );
+    return { ok: true, cost: buyoutCost, prevOwnerId: prevOwner.id };
+  }
+
+  /**
+   * FEAT-v5.0: Player-to-Player & Player-to-Bot Property Trading (`proposePropertyTrade`).
+   * Supports both object-style `proposePropertyTrade(proposal)` and shorthand
+   * `proposePropertyTrade(fromPlayerId, targetTileIndex, cashOffer, offeredTileIndex)`.
+   */
+  public proposePropertyTrade(
+    proposalOrFromId: TradeProposal | string,
+    targetTileIndexArg?: number,
+    cashOfferArg?: number,
+    offeredTileIndexArg?: number
+  ): TradeResult {
+    let proposal: TradeProposal;
+    if (typeof proposalOrFromId === 'string') {
+      const tIdx = targetTileIndexArg ?? 0;
+      const st = this.getTileState(tIdx);
+      proposal = {
+        fromPlayerId: proposalOrFromId,
+        toPlayerId: st.ownerId ?? '',
+        targetTileIndex: tIdx,
+        cashOffer: cashOfferArg ?? 0,
+        offeredTileIndex: offeredTileIndexArg
+      };
+    } else {
+      proposal = proposalOrFromId;
+    }
+
+    const fromPlayer = this.getPlayerById(proposal.fromPlayerId);
+    const toPlayer = this.getPlayerById(proposal.toPlayerId);
+    if (fromPlayer.bankrupt || toPlayer.bankrupt || fromPlayer.id === toPlayer.id) {
+      return { ok: false, accepted: false, reason: 'Người chơi không hợp lệ.' };
+    }
+
+    const targetState = this.getTileState(proposal.targetTileIndex);
+    const targetCfg = this.getTileConfig(proposal.targetTileIndex);
+    if (targetState.ownerId !== toPlayer.id) {
+      return { ok: false, accepted: false, reason: 'Đối phương không sở hữu ô đất mục tiêu.' };
+    }
+    if (targetState.level >= 4) {
+      return { ok: false, accepted: false, reason: 'Lâu Đài Voxel Cấp 4 không thể chuyển nhượng.' };
+    }
+
+    const cashOffer = Math.max(0, Math.round(proposal.cashOffer));
+    if (fromPlayer.gold < cashOffer) {
+      return { ok: false, accepted: false, reason: 'Bạn không đủ tiền mặt để đề nghị mức giá này.' };
+    }
+
+    let offeredTileValue = 0;
+    let offeredCfg: TileConfig | null = null;
+    let offeredState: TileState | null = null;
+    if (typeof proposal.offeredTileIndex === 'number') {
+      offeredState = this.getTileState(proposal.offeredTileIndex);
+      offeredCfg = this.getTileConfig(proposal.offeredTileIndex);
+      if (offeredState.ownerId !== fromPlayer.id) {
+        return { ok: false, accepted: false, reason: 'Bạn không sở hữu ô đất đem ra trao đổi.' };
+      }
+      offeredTileValue =
+        (offeredCfg.price ?? 0) +
+        Math.max(0, offeredState.level - 1) * (offeredCfg.upgradeCost ?? 0);
+    }
+
+    const targetBaseValue =
+      (targetCfg.price ?? 0) +
+      Math.max(0, targetState.level - 1) * (targetCfg.upgradeCost ?? 0);
+
+    // If target player is an AI Bot, evaluate fairness:
+    // - Standard required value: 125% of targetBaseValue (or 155% if AI already owns Full Color Group!)
+    if (toPlayer.isBot) {
+      const botHasMonopoly = this.ownsFullColorGroup(toPlayer.id, targetCfg.group);
+      const requiredMultiplier = botHasMonopoly ? 1.55 : 1.25;
+      const minRequiredOffer = Math.round(targetBaseValue * requiredMultiplier);
+      const totalOfferedValue = cashOffer + offeredTileValue;
+
+      if (totalOfferedValue < minRequiredOffer) {
+        this.addLog(
+          `🤝 ${toPlayer.emoji} ${toPlayer.name} từ chối thương lượng mua ${targetCfg.name} (cần tối thiểu giá trị ~$${minRequiredOffer}).`
+        );
+        return {
+          ok: true,
+          accepted: false,
+          reason: `${toPlayer.name} từ chối! Họ định giá ${targetCfg.name} tối thiểu $${minRequiredOffer} (Tổng đề nghị của bạn: $${totalOfferedValue}).`
+        };
+      }
+    }
+
+    // Execute trade
+    fromPlayer.gold -= cashOffer;
+    toPlayer.gold += cashOffer;
+    targetState.ownerId = fromPlayer.id;
+
+    if (offeredState && offeredCfg) {
+      offeredState.ownerId = toPlayer.id;
+      this.addLog(
+        `🤝 THƯƠNG VỤ THÀNH CÔNG: ${fromPlayer.emoji} ${fromPlayer.name} đổi ${offeredCfg.name} + $${cashOffer} lấy ${targetCfg.name} của ${toPlayer.name}!`
+      );
+    } else {
+      this.addLog(
+        `🤝 THƯƠNG VỤ THÀNH CÔNG: ${fromPlayer.emoji} ${fromPlayer.name} mua thỏa thuận ${targetCfg.name} từ ${toPlayer.name} với giá $${cashOffer}!`
+      );
+    }
+
+    gameEventBus.emit('property:traded', {
+      fromPlayerId: fromPlayer.id,
+      toPlayerId: toPlayer.id,
+      targetTileIndex: proposal.targetTileIndex,
+      offeredTileIndex: proposal.offeredTileIndex,
+      cashOffer
+    });
+    gameEventBus.emit('PROPERTY_TRADED', {
+      proposerId: fromPlayer.id,
+      targetOwnerId: toPlayer.id,
+      tileIndex: proposal.targetTileIndex,
+      cashOffer
+    });
 
     return {
       ok: true,
-      buyoutCost,
-      previousOwnerId: previousOwner.id,
-      previousOwnerName: previousOwner.name
+      accepted: true,
+      reason: `Thương lượng thành công! Quyền sở hữu ${targetCfg.name} đã chuyển sang ${fromPlayer.name}.`
     };
   }
 
   /**
-   * FEAT-02: Emergency Property Liquidation (75% of base price + upgrades)
+   * FEAT-02: Liquidation value (`75%` of total invested capital, respecting Steve's discount)
+   * when selling a property back to the Bank
    */
   public getLiquidationValue(tileIndex: number): number {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
-    const basePrice = cfg.price ?? 100;
-    const upgradeTotal =
-      cfg.type === 'PROPERTY' ? Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 60) : 0;
-    return Math.round(
-      (basePrice + upgradeTotal) * (GAME_RULES_CONFIG.liquidationRatePct / 100)
-    );
+    const basePrice = cfg.price ?? 0;
+    const upCost = state.ownerId
+      ? this.getEffectiveUpgradeCost(state.ownerId, tileIndex)
+      : (cfg.upgradeCost ?? 0);
+    const upgradesValue = Math.max(0, state.level - 1) * upCost;
+    return Math.round((basePrice + upgradesValue) * (GAME_RULES_CONFIG.liquidationRatePct / 100));
   }
 
-  public getPlayerLiquidatableProperties(playerId: string): LiquidatablePropertyInfo[] {
+  public getPlayerLiquidatableProperties(
+    playerId: string
+  ): Array<{ tileIndex: number; name: string; level: number; resaleValue: number }> {
     return this.tiles
       .filter((t) => t.ownerId === playerId)
       .map((t) => {
@@ -848,84 +682,843 @@ export class GameEngine {
           level: t.level,
           resaleValue: this.getLiquidationValue(t.index)
         };
-      })
-      .sort((a, b) => a.resaleValue - b.resaleValue);
+      });
   }
 
+  /**
+   * FEAT-02: Sells a player's owned property back to the Bank for 75% cash to avoid bankruptcy
+   */
   public liquidateProperty(
     playerId: string,
     tileIndex: number
-  ): { ok: boolean; resaleValue: number; newGold: number } {
+  ): { ok: boolean; payout: number; tileName: string } {
     const player = this.getPlayerById(playerId);
     const state = this.getTileState(tileIndex);
     const cfg = this.getTileConfig(tileIndex);
     if (state.ownerId !== playerId) {
-      return { ok: false, resaleValue: 0, newGold: player.gold };
+      return { ok: false, payout: 0, tileName: cfg.name };
     }
 
-    const resaleValue = this.getLiquidationValue(tileIndex);
-    player.gold += resaleValue;
+    const payout = this.getLiquidationValue(tileIndex);
+    player.gold += payout;
     state.ownerId = null;
     state.level = 0;
     state.festivalMultiplier = 1;
+    state.festivalTurnsLeft = 0;
+    state.mortgaged = false;
 
     this.addLog(
-      `🏦 ${player.emoji} ${player.name} thanh lý khẩn cấp [${cfg.name}] thu về +$${resaleValue} (75% giá trị)!`
+      `🏦 THANH LÝ KHẨN CẤP: ${player.emoji} ${player.name} bán lại ${cfg.name} cho Ngân hàng thu về +$${payout}!`
     );
-
-    return { ok: true, resaleValue, newGold: player.gold };
+    return { ok: true, payout, tileName: cfg.name };
   }
 
-  public applyFestivalBoost(playerId: string, tileIndex: number): { ok: boolean } {
+  public rollDice(forcedValues?: [number, number]): {
+    d1: number;
+    d2: number;
+    total: number;
+    isDoubles: boolean;
+    sentToJailByTripleDoubles?: boolean;
+  } {
+    const d1 = forcedValues ? forcedValues[0] : Math.floor(Math.random() * 6) + 1;
+    const d2 = forcedValues ? forcedValues[1] : Math.floor(Math.random() * 6) + 1;
+    const total = d1 + d2;
+    const isDoubles = d1 === d2;
+    this.lastDiceTotal = total;
+    this.lastRollWasDoubles = isDoubles;
+
+    const current = this.getCurrentPlayer();
+    gameEventBus.emit('dice:rolled', {
+      playerId: current.id,
+      d1,
+      d2,
+      total,
+      isDoubles
+    });
+
+    if (isDoubles) {
+      current.consecutiveDoubles = (current.consecutiveDoubles ?? 0) + 1;
+      if (current.consecutiveDoubles >= 3) {
+        current.consecutiveDoubles = 0;
+        this.lastRollWasDoubles = false;
+        this.sendPlayerToJail(
+          current.id,
+          'Đổ trúng cặp đôi 3 lần liên tiếp (Luật Cờ Tỷ Phú Việt Nam)'
+        );
+        return { d1, d2, total, isDoubles, sentToJailByTripleDoubles: true };
+      }
+      this.addLog(
+        `⚡ XÚC XẮC ĐÔI (${d1}-${d2})! ${current.emoji} ${current.name} sẽ được tung thêm 1 lượt nữa!`
+      );
+    } else {
+      current.consecutiveDoubles = 0;
+    }
+
+    return { d1, d2, total, isDoubles };
+  }
+
+  /**
+   * Sends a player directly to Tile #10 (Nhà Tù Chí Hòa) without collecting $200 Start bonus.
+   * Enderman Passive: Triggers `+$50` Ender Crystal bonus when warped into Jail via Portal!
+   */
+  public sendPlayerToJail(playerId: string, reason: string): void {
+    const player = this.getPlayerById(playerId);
+    const fromTile = player.position;
+    player.position = 10;
+    player.inJail = true;
+    player.jailTurns = 0;
+    player.consecutiveDoubles = 0;
+    this.lastRollWasDoubles = false;
+
+    let endermanBonusMsg = '';
+    if (player.characterId === 'enderman') {
+      player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+      endermanBonusMsg = ` (Nội tại Enderman +$${GAME_RULES_CONFIG.endermanPortalBonus} Tinh Thể Ender!)`;
+    }
+
+    this.addLog(
+      `🚓 VÀO TÙ CHÍ HÒA (#10): ${player.emoji} ${player.name} bị áp giải thẳng vào Nhà Tù Chí Hòa do: ${reason}!${endermanBonusMsg}`
+    );
+
+    gameEventBus.emit('portal:teleported', {
+      playerId: player.id,
+      fromTile,
+      toTile: 10,
+      reason: 'PORTAL_30'
+    });
+  }
+
+  /**
+   * Resolves a player paying the $50 Jail fine at Tile #10 (Nhà Tù Chí Hòa) to leave Jail immediately.
+   * Enderman Passive: Gains +$50 Ender Crystal bonus when escaping Jail!
+   */
+  public payJailFine(
+    playerId: string,
+    fineAmount = GAME_RULES_CONFIG.jailFineAmount
+  ): { ok: boolean; remainingGold: number } {
+    const player = this.getPlayerById(playerId);
+    if (!player.inJail || player.gold < fineAmount) {
+      return { ok: false, remainingGold: player.gold };
+    }
+    player.gold -= fineAmount;
+    player.inJail = false;
+    player.jailTurns = 0;
+
+    let bonusNote = '';
+    if (player.characterId === 'enderman') {
+      player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+      bonusNote = ` (Nội tại Enderman hoàn lại +$${GAME_RULES_CONFIG.endermanPortalBonus} khi thoát Tù!)`;
+    }
+
+    this.addLog(
+      `🔓 ${player.emoji} ${player.name} nộp phạt $${fineAmount} tại Nhà Tù Chí Hòa (#10) và được tự do tung xúc xắc!${bonusNote}`
+    );
+    gameEventBus.emit('portal:teleported', {
+      playerId: player.id,
+      fromTile: 10,
+      toTile: 10,
+      reason: 'JAIL_ESCAPE'
+    });
+    return { ok: true, remainingGold: player.gold };
+  }
+
+  /**
+   * Uses a "Thẻ Ra Tù Miễn Phí" (Get Out of Jail Free Card) to leave Jail immediately.
+   * Enderman Passive: Gains +$50 Ender Crystal bonus when escaping Jail!
+   */
+  public useJailFreeCard(playerId: string): { ok: boolean; remainingCards: number } {
+    const player = this.getPlayerById(playerId);
+    if (!player.inJail || (player.jailFreeCards ?? 0) <= 0) {
+      return { ok: false, remainingCards: player.jailFreeCards ?? 0 };
+    }
+    player.jailFreeCards = (player.jailFreeCards ?? 1) - 1;
+    player.inJail = false;
+    player.jailTurns = 0;
+
+    let bonusNote = '';
+    if (player.characterId === 'enderman') {
+      player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+      bonusNote = ` (Nội tại Enderman nhận +$${GAME_RULES_CONFIG.endermanPortalBonus} Tinh Thể Ender khi thoát Tù!)`;
+    }
+
+    this.addLog(
+      `🕊️ ${player.emoji} ${player.name} sử dụng Thẻ Ra Tù Miễn Phí để bước ra khỏi Nhà Tù Chí Hòa (#10)!${bonusNote}`
+    );
+    gameEventBus.emit('portal:teleported', {
+      playerId: player.id,
+      fromTile: 10,
+      toTile: 10,
+      reason: 'JAIL_ESCAPE'
+    });
+    return { ok: true, remainingCards: player.jailFreeCards };
+  }
+
+  /**
+   * Attempts to roll doubles while in Jail (#10 Nhà Tù Chí Hòa):
+   * - If `d1 === d2`: Escapes Jail for free and moves `d1 + d2` tiles!
+   * - If not doubles on 3rd turn in Jail: Automatically pays $50 bail and moves `d1 + d2` tiles!
+   */
+  public attemptRollDoublesInJail(
+    playerId: string,
+    forcedValues?: [number, number]
+  ): {
+    d1: number;
+    d2: number;
+    total: number;
+    escaped: boolean;
+    paidForcedFine: boolean;
+  } {
+    const player = this.getPlayerById(playerId);
+    const d1 = forcedValues ? forcedValues[0] : Math.floor(Math.random() * 6) + 1;
+    const d2 = forcedValues ? forcedValues[1] : Math.floor(Math.random() * 6) + 1;
+    const total = d1 + d2;
+    this.lastDiceTotal = total;
+    this.lastRollWasDoubles = false;
+
+    if (d1 === d2) {
+      player.inJail = false;
+      player.jailTurns = 0;
+      let bonusNote = '';
+      if (player.characterId === 'enderman') {
+        player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+        bonusNote = ` (+$${GAME_RULES_CONFIG.endermanPortalBonus} Nội tại Enderman!)`;
+      }
+      this.addLog(
+        `🎲 THOÁT TÙ NGOẠN MỤC! ${player.emoji} ${player.name} đổ trúng cặp đôi (${d1}-${d2}) để ra khỏi Nhà Tù Chí Hòa miễn phí!${bonusNote}`
+      );
+      gameEventBus.emit('portal:teleported', {
+        playerId: player.id,
+        fromTile: 10,
+        toTile: 10,
+        reason: 'JAIL_ESCAPE'
+      });
+      return { d1, d2, total, escaped: true, paidForcedFine: false };
+    }
+
+    player.jailTurns = (player.jailTurns ?? 0) + 1;
+    if (player.jailTurns >= 3) {
+      const fine = Math.min(player.gold, GAME_RULES_CONFIG.jailFineAmount);
+      player.gold -= fine;
+      player.inJail = false;
+      player.jailTurns = 0;
+      let bonusNote = '';
+      if (player.characterId === 'enderman') {
+        player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+        bonusNote = ` (+$${GAME_RULES_CONFIG.endermanPortalBonus} Nội tại Enderman!)`;
+      }
+      this.addLog(
+        `⏳ Đã hết 3 lượt ở Nhà Tù Chí Hòa: ${player.emoji} ${player.name} nộp phạt $${fine} để ra tù và đi ${total} bước!${bonusNote}`
+      );
+      gameEventBus.emit('portal:teleported', {
+        playerId: player.id,
+        fromTile: 10,
+        toTile: 10,
+        reason: 'JAIL_ESCAPE'
+      });
+      return { d1, d2, total, escaped: true, paidForcedFine: true };
+    }
+
+    this.addLog(
+      `🔒 ${player.emoji} ${player.name} đổ (${d1}-${d2}) chưa ra đôi — tiếp tục ở lại Nhà Tù Chí Hòa (Lượt ${player.jailTurns}/3).`
+    );
+    return { d1, d2, total, escaped: false, paidForcedFine: false };
+  }
+
+  public canTakeExtraDoublesTurn(): boolean {
+    const current = this.getCurrentPlayer();
+    return (
+      this.lastRollWasDoubles &&
+      !current.bankrupt &&
+      !current.inJail &&
+      current.skipTurns === 0 &&
+      !this.winnerId
+    );
+  }
+
+  public stepPlayerOneTile(playerId: string): {
+    newPosition: number;
+    passedStart: boolean;
+  } {
+    const player = this.getPlayerById(playerId);
+    const nextPos = (player.position + 1) % BOARD_SIZE;
+    const passedStart = nextPos === 0;
+    player.position = nextPos;
+
+    if (passedStart) {
+      const bonus =
+        player.characterId === 'alex'
+          ? GAME_RULES_CONFIG.passStartReward + GAME_RULES_CONFIG.alexStartBonus
+          : GAME_RULES_CONFIG.passStartReward;
+      player.gold += bonus;
+      this.addLog(
+        `${player.emoji} ${player.name} đi qua Ô Xuất Phát (#0) và nhận +$${bonus}${
+          player.characterId === 'alex'
+            ? ` (Nội tại Alex +$${GAME_RULES_CONFIG.alexStartBonus})`
+            : ''
+        }!`
+      );
+    }
+
+    return { newPosition: nextPos, passedStart };
+  }
+
+  public calculateRent(tileIndex: number): number {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    if (!state.ownerId || state.mortgaged) return 0;
+
+    if (cfg.type === 'PROPERTY') {
+      const rents = cfg.rents ?? [25, 50, 120, 260];
+      const tierIdx = Math.max(0, Math.min(rents.length - 1, state.level - 1));
+      const monopolyBonus = this.ownsFullColorGroup(state.ownerId, cfg.group)
+        ? GAME_RULES_CONFIG.monopolyBonusPct / 100
+        : 1.0;
+      return Math.round(rents[tierIdx] * state.festivalMultiplier * monopolyBonus);
+    }
+
+    if (cfg.type === 'RAILROAD') {
+      const ownedRailroads = BOARD_TILES.filter(
+        (t) => t.type === 'RAILROAD' && this.getTileState(t.index).ownerId === state.ownerId
+      ).length;
+      const rents = cfg.rents ?? [25, 50, 100, 200];
+      const idx = Math.max(0, Math.min(rents.length - 1, ownedRailroads - 1));
+      return rents[idx] * state.festivalMultiplier;
+    }
+
+    if (cfg.type === 'UTILITY') {
+      const ownedUtilities = BOARD_TILES.filter(
+        (t) => t.type === 'UTILITY' && this.getTileState(t.index).ownerId === state.ownerId
+      ).length;
+      const mult =
+        ownedUtilities >= 2 ? (cfg.rents?.[1] ?? 10) : (cfg.rents?.[0] ?? 4);
+      return this.lastDiceTotal * mult * state.festivalMultiplier;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Resolves landing on the current tile.
+   * When `options.deferRentPayment === true`, landing on an opponent's owned property
+   * returns the invoice details (`amount`, `rentReason`, `canAffordRent`) WITHOUT deducting gold yet,
+   * so the UI can show the Rent Confirmation Modal first!
+   */
+  public resolveTileLanding(
+    playerId: string,
+    options?: { deferRentPayment?: boolean; forcedCardId?: string }
+  ): TileResolutionResult {
+    const player = this.getPlayerById(playerId);
+    const tileIdx = player.position;
+    const cfg = this.getTileConfig(tileIdx);
+    const state = this.getTileState(tileIdx);
+
+    if (cfg.type === 'START') {
+      return {
+        action: 'NONE',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        message: `${player.emoji} ${player.name} dừng chân tại ${cfg.name}.`
+      };
+    }
+
+    if (cfg.type === 'PROPERTY' || cfg.type === 'RAILROAD' || cfg.type === 'UTILITY') {
+      if (state.ownerId === null) {
+        const price = cfg.price ?? 100;
+        if (player.gold >= price) {
+          return {
+            action: 'CAN_BUY_PROPERTY',
+            tileIndex: tileIdx,
+            tileName: cfg.name,
+            amount: price,
+            message: `${cfg.name} đang trống! Giá mua: $${price}.`
+          };
+        }
+        return {
+          action: 'NONE',
+          tileIndex: tileIdx,
+          tileName: cfg.name,
+          message: `${player.emoji} ${player.name} không đủ $${price} để mua ${cfg.name}.`
+        };
+      }
+
+      if (state.ownerId === player.id) {
+        if (cfg.type === 'PROPERTY' && state.level < 4 && !state.mortgaged) {
+          const upCost = this.getEffectiveUpgradeCost(player.id, tileIdx);
+          if (!this.canUpgradePropertyEvenly(player.id, tileIdx)) {
+            return {
+              action: 'NONE',
+              tileIndex: tileIdx,
+              tileName: cfg.name,
+              message: `${player.emoji} ${player.name} cần nâng cấp đều các ô cùng màu trước khi nâng tiếp ${cfg.name} (Luật Xây Đều)!`
+            };
+          }
+          if (player.gold >= upCost) {
+            return {
+              action: 'CAN_UPGRADE_PROPERTY',
+              tileIndex: tileIdx,
+              tileName: cfg.name,
+              amount: upCost,
+              message: `Nâng cấp ${cfg.name} lên ${BUILDING_TIER_NAMES[state.level + 1].name} với giá $${upCost}?`
+            };
+          }
+        }
+        return {
+          action: 'NONE',
+          tileIndex: tileIdx,
+          tileName: cfg.name,
+          message: `${player.emoji} ${player.name} kiểm tra lãnh địa ${cfg.name}.`
+        };
+      }
+
+      if (state.mortgaged) {
+        const owner = this.getPlayerById(state.ownerId);
+        return {
+          action: 'NONE',
+          tileIndex: tileIdx,
+          tileName: cfg.name,
+          ownerId: owner.id,
+          ownerName: owner.name,
+          message: `${cfg.name} của ${owner.name} đang thế chấp Ngân hàng nên bạn được miễn 100% tiền thuê!`
+        };
+      }
+
+      const owner = this.getPlayerById(state.ownerId);
+      const rent = this.calculateRent(tileIdx);
+      const reason =
+        cfg.rentReason ??
+        `sử dụng dịch vụ và đi qua lãnh địa ${cfg.name} thuộc quyền sở hữu của ${owner.name}`;
+      const payerPrevGold = player.gold;
+      const ownerPrevGold = owner.gold;
+      const canAffordRent = player.gold >= rent;
+
+      if (!options?.deferRentPayment) {
+        this.executeConfirmedRentPayment(player.id, tileIdx);
+      }
+
+      return {
+        action: 'PAID_RENT',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        amount: rent,
+        ownerId: owner.id,
+        ownerName: owner.name,
+        rentReason: reason,
+        canAffordRent,
+        payerPrevGold,
+        ownerPrevGold,
+        message: `${player.emoji} ${player.name} đi vào đất của ${owner.name}! Vì ${reason} nên sẽ bị trừ $${rent}!`
+      };
+    }
+
+    if (cfg.type === 'ROYAL_TAX') {
+      const baseTax = cfg.price ?? 120;
+      const tax =
+        player.characterId === 'creeper'
+          ? Math.round(baseTax * (1 - GAME_RULES_CONFIG.creeperTaxDiscountPct / 100))
+          : baseTax;
+      const payerPrevGold = player.gold;
+      player.gold = Math.max(0, player.gold - tax);
+      this.addLog(
+        `👑 ${player.emoji} ${player.name} nộp $${tax} tại ${cfg.name}${
+          player.characterId === 'creeper'
+            ? ` (Nội tại Creeper -${GAME_RULES_CONFIG.creeperTaxDiscountPct}%)`
+            : ''
+        }.`
+      );
+      this.checkBankruptcy(player);
+      return {
+        action: 'PAID_ROYAL_TAX',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        amount: tax,
+        payerPrevGold,
+        message: `Đã nộp $${tax} vào Kho Bạc Thành Phố.`
+      };
+    }
+
+    if (cfg.type === 'CHEST') {
+      const isKhiVanTile = tileIdx === 2 || tileIdx === 17 || tileIdx === 33;
+      const targetDeck = isKhiVanTile ? 'KHI_VAN' : 'CO_HOI';
+      const deckCards = CHEST_CARDS.filter((c) => c.deck === targetDeck);
+      const pool = deckCards.length > 0 ? deckCards : CHEST_CARDS;
+      const forced = options?.forcedCardId
+        ? CHEST_CARDS.find((c) => c.id === options.forcedCardId)
+        : undefined;
+      const card = forced ?? pool[Math.floor(Math.random() * pool.length)];
+
+      const payerPrevGold = player.gold;
+      const originTile = player.position;
+      let totalGoldDelta = card.goldDelta;
+
+      if (card.collectFromEachPlayer && card.collectFromEachPlayer > 0) {
+        const perPlayer = card.collectFromEachPlayer;
+        let collected = 0;
+        for (const other of this.players) {
+          if (other.id !== player.id && !other.bankrupt) {
+            const take = Math.min(other.gold, perPlayer);
+            other.gold -= take;
+            collected += take;
+          }
+        }
+        totalGoldDelta += collected;
+      }
+
+      if (totalGoldDelta >= 0) {
+        player.gold += totalGoldDelta;
+      } else {
+        player.gold = Math.max(0, player.gold + totalGoldDelta);
+      }
+
+      let movedToTile: number | undefined;
+      let moveDirection: 'FORWARD' | 'BACKWARD' | undefined;
+      let sentToJailByCard = false;
+
+      if (card.grantGetOutOfJailCard) {
+        player.jailFreeCards = (player.jailFreeCards ?? 0) + 1;
+      }
+
+      if (card.goToJail) {
+        sentToJailByCard = true;
+        movedToTile = 10;
+        this.sendPlayerToJail(player.id, `Thẻ ${card.title}`);
+      } else if (typeof card.moveToTile === 'number') {
+        movedToTile = ((card.moveToTile % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+        moveDirection = 'FORWARD';
+        if (movedToTile < originTile && movedToTile !== 0) {
+          const passBonus =
+            player.characterId === 'alex'
+              ? GAME_RULES_CONFIG.passStartReward + GAME_RULES_CONFIG.alexStartBonus
+              : GAME_RULES_CONFIG.passStartReward;
+          player.gold += passBonus;
+          totalGoldDelta += passBonus;
+          this.addLog(
+            `✈️ ${player.emoji} ${player.name} bay qua Bến Nhà Rồng (#0) nhờ thẻ và nhận thêm +$${passBonus}!`
+          );
+        }
+        player.position = movedToTile;
+        if (player.characterId === 'enderman') {
+          player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+          totalGoldDelta += GAME_RULES_CONFIG.endermanPortalBonus;
+          this.addLog(
+            `🔮 Nội tại Enderman: +$${GAME_RULES_CONFIG.endermanPortalBonus} Tinh Thể Ender khi dịch chuyển qua Thẻ Rương!`
+          );
+        }
+        gameEventBus.emit('portal:teleported', {
+          playerId: player.id,
+          fromTile: originTile,
+          toTile: movedToTile,
+          reason: 'CHEST_CARD'
+        });
+      } else if (typeof card.stepDelta === 'number' && card.stepDelta !== 0) {
+        movedToTile = ((originTile + card.stepDelta) % BOARD_SIZE + BOARD_SIZE) % BOARD_SIZE;
+        moveDirection = card.stepDelta < 0 ? 'BACKWARD' : 'FORWARD';
+        player.position = movedToTile;
+        if (player.characterId === 'enderman') {
+          player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+          totalGoldDelta += GAME_RULES_CONFIG.endermanPortalBonus;
+          this.addLog(
+            `🔮 Nội tại Enderman: +$${GAME_RULES_CONFIG.endermanPortalBonus} Tinh Thể Ender khi dịch chuyển bước qua Thẻ Rương!`
+          );
+        }
+        gameEventBus.emit('portal:teleported', {
+          playerId: player.id,
+          fromTile: originTile,
+          toTile: movedToTile,
+          reason: 'CHEST_CARD'
+        });
+      }
+
+      this.addLog(`🎁 ${player.emoji} ${player.name} mở ${card.title}: ${card.description}`);
+      this.checkBankruptcy(player);
+      return {
+        action: 'CHEST_DRAWN',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        amount: totalGoldDelta,
+        payerPrevGold,
+        chestCard: card,
+        movedFromTile: originTile,
+        movedToTile,
+        moveDirection,
+        sentToJailByCard,
+        message: `${card.title} — ${card.description}`
+      };
+    }
+
+    if (cfg.type === 'DESERTED_ISLAND') {
+      // Standard Vietnamese Monopoly Rule: Landing on #10 by normal dice roll is "Thăm Tù" (Just Visiting — 0 turns lost!)
+      this.addLog(
+        `👀 ${player.emoji} ${player.name} ghé Thăm Tù tại ${cfg.name} (#10) — hoàn toàn tự do!`
+      );
+      return {
+        action: 'JUST_VISITING_JAIL',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        message: `Bạn chỉ ghé Thăm Tù tại ${cfg.name} (#10) nên không bị giam và không mất lượt!`
+      };
+    }
+
+    if (cfg.type === 'FESTIVAL') {
+      return {
+        action: 'CHOOSE_FESTIVAL_TILE',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        message: `🎉 Đại Tiệc & Cổng Lễ Hội (#20)! Bạn có thể chọn Nhân Đôi (x2) tiền thuê trong 3 vòng HOẶC Mở Cổng Dịch Chuyển tới bất kỳ ô nào!`
+      };
+    }
+
+    if (cfg.type === 'NETHER_PORTAL') {
+      return {
+        action: 'NETHER_PORTAL_READY',
+        tileIndex: tileIdx,
+        tileName: cfg.name,
+        message: `🟣 Cổng Địa Ngục Nether! Dịch chuyển ngẫu nhiên sang 1 điểm nóng kèm +$${GAME_RULES_CONFIG.netherWarpGoldBonus}!`
+      };
+    }
+
+    if (cfg.type === 'END_PORTAL') {
+      // Standard Vietnamese Monopoly Rule: Tile #30 sends player directly into #10 Jail (via End Portal vortex -> Sky Portal drop!)
+      this.sendPlayerToJail(player.id, `Bước vào ${cfg.name} (#30)`);
+      return {
+        action: 'SENT_TO_JAIL',
+        tileIndex: 10,
+        tileName: cfg.name,
+        movedFromTile: 30,
+        movedToTile: 10,
+        message: `🌌 Bạn bị hút vào Cổng The End (#30) và rơi thẳng từ bầu trời xuống Nhà Tù Chí Hòa (#10)!`
+      };
+    }
+
+    return {
+      action: 'NONE',
+      tileIndex: tileIdx,
+      tileName: cfg.name,
+      message: `${player.name} dừng tại ${cfg.name}.`
+    };
+  }
+
+  /**
+   * Executes the confirmed rent transfer after the player clicks "Xác Nhận Thanh Toán" in the Rent Modal
+   */
+  public executeConfirmedRentPayment(
+    payerId: string,
+    tileIndex: number
+  ): ConfirmedRentPaymentResult {
+    const payer = this.getPlayerById(payerId);
+    const state = this.getTileState(tileIndex);
+    const cfg = this.getTileConfig(tileIndex);
+
+    if (!state.ownerId || state.ownerId === payer.id) {
+      return {
+        ok: false,
+        paidAmount: 0,
+        rentAmount: 0,
+        ownerId: payer.id,
+        payerPrevGold: payer.gold,
+        payerNewGold: payer.gold,
+        ownerPrevGold: payer.gold,
+        ownerNewGold: payer.gold,
+        bankrupt: false
+      };
+    }
+
+    const owner = this.getPlayerById(state.ownerId);
+    const rent = this.calculateRent(tileIndex);
+    const payerPrevGold = payer.gold;
+    const ownerPrevGold = owner.gold;
+
+    if (payer.gold >= rent) {
+      payer.gold -= rent;
+      owner.gold += rent;
+      this.addLog(
+        `💸 ${payer.emoji} ${payer.name} đã thanh toán $${rent} phí thuê tại ${cfg.name} cho ${owner.emoji} ${owner.name}.`
+      );
+      return {
+        ok: true,
+        paidAmount: rent,
+        rentAmount: rent,
+        ownerId: owner.id,
+        payerPrevGold,
+        payerNewGold: payer.gold,
+        ownerPrevGold,
+        ownerNewGold: owner.gold,
+        bankrupt: false
+      };
+    }
+
+    const paid = payer.gold;
+    payer.gold = 0;
+    owner.gold += paid;
+    payer.bankrupt = true;
+
+    for (const t of this.tiles) {
+      if (t.ownerId === payer.id) {
+        t.ownerId = null;
+        t.level = 0;
+        t.festivalMultiplier = 1;
+        t.festivalTurnsLeft = 0;
+        t.mortgaged = false;
+      }
+    }
+
+    this.addLog(
+      `💀 PHÁ SẢN! ${payer.emoji} ${payer.name} không đủ trả $${rent} tại ${cfg.name} (chỉ còn $${paid}) và chính thức bị loại khỏi cuộc đua!`
+    );
+
+    const alive = this.players.filter((p) => !p.bankrupt);
+    if (alive.length === 1) {
+      this.winnerId = alive[0].id;
+      this.addLog(`🏆 CHIẾN THẮNG! ${alive[0].emoji} ${alive[0].name} thống trị Đảo Voxel!`);
+    }
+
+    return {
+      ok: true,
+      paidAmount: paid,
+      rentAmount: rent,
+      ownerId: owner.id,
+      payerPrevGold,
+      payerNewGold: 0,
+      ownerPrevGold,
+      ownerNewGold: owner.gold,
+      bankrupt: true
+    };
+  }
+
+  public buyProperty(playerId: string, tileIndex: number): { ok: boolean; reason?: string } {
+    const player = this.getPlayerById(playerId);
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+
+    if (cfg.type !== 'PROPERTY' && cfg.type !== 'RAILROAD' && cfg.type !== 'UTILITY') {
+      return { ok: false, reason: 'NOT_BUYABLE' };
+    }
+    if (state.ownerId !== null) {
+      return { ok: false, reason: 'ALREADY_OWNED' };
+    }
+    const price = cfg.price ?? 100;
+    if (player.gold < price) {
+      return { ok: false, reason: 'INSUFFICIENT_GOLD' };
+    }
+
+    player.gold -= price;
+    state.ownerId = player.id;
+    state.level = 1;
+
+    this.addLog(
+      `🏠 ${player.emoji} ${player.name} mua ${cfg.name} ($${price}) — dựng ${BUILDING_TIER_NAMES[1].name}!`
+    );
+    gameEventBus.emit('property:bought', {
+      playerId: player.id,
+      tileIndex,
+      price
+    });
+    return { ok: true };
+  }
+
+  public upgradeProperty(
+    playerId: string,
+    tileIndex: number
+  ): { ok: boolean; newLevel: number; reason?: string } {
+    const player = this.getPlayerById(playerId);
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+
+    if (cfg.type !== 'PROPERTY' || state.ownerId !== player.id) {
+      return { ok: false, newLevel: state.level, reason: 'NOT_OWNER' };
+    }
+    if (state.level >= 4) {
+      return { ok: false, newLevel: state.level, reason: 'MAX_LEVEL' };
+    }
+    if (!this.canUpgradePropertyEvenly(player.id, tileIndex)) {
+      return { ok: false, newLevel: state.level, reason: 'UNEVEN_BUILD' };
+    }
+
+    const upCost = this.getEffectiveUpgradeCost(player.id, tileIndex);
+    if (player.gold < upCost) {
+      return { ok: false, newLevel: state.level, reason: 'INSUFFICIENT_GOLD' };
+    }
+
+    player.gold -= upCost;
+    state.level += 1;
+    const tierInfo = BUILDING_TIER_NAMES[state.level];
+
+    this.addLog(
+      `⬆️ ${player.emoji} ${player.name} nâng cấp ${cfg.name} lên Cấp ${state.level}: ${tierInfo.icon} ${tierInfo.name}!`
+    );
+    gameEventBus.emit('property:upgraded', {
+      playerId: player.id,
+      tileIndex,
+      level: state.level,
+      cost: upCost
+    });
+    return { ok: true, newLevel: state.level };
+  }
+
+  /**
+   * Applies a 2x Festival Rent Multiplier for 3 rounds (`festivalTurnsLeft = 3`).
+   */
+  public applyFestivalBoost(playerId: string, tileIndex: number): boolean {
     const state = this.getTileState(tileIndex);
     const cfg = this.getTileConfig(tileIndex);
     const player = this.getPlayerById(playerId);
-    if (state.ownerId !== playerId) {
-      return { ok: false };
-    }
+
+    if (state.ownerId !== playerId) return false;
     state.festivalMultiplier = 2;
+    state.festivalTurnsLeft = 3;
     this.addLog(
-      `🎉 ${player.emoji} ${player.name} tổ chức Lễ Hội tại [${cfg.name}] — Nhân đôi (x2) tiền thuê!`
+      `🎉 ${player.emoji} ${player.name} tổ chức Lễ Hội tại ${cfg.name} — Nhân đôi (x2) tiền thuê trong 3 vòng!`
     );
-    return { ok: true };
+    gameEventBus.emit('festival:boosted', {
+      playerId,
+      tileIndex,
+      multiplier: 2,
+      turnsLeft: 3
+    });
+    return true;
   }
 
   public teleportFromEndPortal(
     playerId: string,
     targetTileIndex: number
-  ): { ok: boolean; passedStart: boolean } {
+  ): { ok: boolean; targetTileIndex: number; passedStart: boolean } {
     const player = this.getPlayerById(playerId);
-    const target = ((targetTileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
-    const oldPos = player.position;
-
-    const passedStart = target !== oldPos && (target === 0 || target < oldPos);
-    player.position = target;
-
-    const enderBonus =
-      player.characterId === 'enderman' ? GAME_RULES_CONFIG.endermanPortalBonus : 0;
-    if (enderBonus > 0) {
-      player.gold += enderBonus;
-    }
+    const fromTile = player.position;
+    const clamped = ((targetTileIndex % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+    const passedStart = clamped < fromTile && fromTile !== 0;
+    player.position = clamped;
 
     if (passedStart) {
-      const startBonus = this.getStartBonus(player);
+      const startBonus =
+        player.characterId === 'alex'
+          ? GAME_RULES_CONFIG.passStartReward + GAME_RULES_CONFIG.alexStartBonus
+          : GAME_RULES_CONFIG.passStartReward;
       player.gold += startBonus;
       this.addLog(
-        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}] (Qua Khởi Hành +$${startBonus}${
-          enderBonus > 0 ? ` • Nội tại Enderman +$${enderBonus}` : ''
-        })!`
-      );
-    } else {
-      this.addLog(
-        `🌌 ${player.emoji} ${player.name} bay qua Cổng The End tới [${this.getTileConfig(target).name}]${
-          enderBonus > 0 ? ` (Nội tại Enderman +$${enderBonus})` : ''
-        }!`
+        `✈️ ${player.emoji} ${player.name} dịch chuyển qua Ô Xuất Phát (#0) và nhận +$${startBonus}!`
       );
     }
 
-    return { ok: true, passedStart };
+    if (player.characterId === 'enderman') {
+      player.gold += GAME_RULES_CONFIG.endermanPortalBonus;
+      this.addLog(
+        `🔮 Nội tại Enderman: Nhận thêm +$${GAME_RULES_CONFIG.endermanPortalBonus} Tinh Thể Ender khi dịch chuyển!`
+      );
+    }
+
+    const dest = this.getTileConfig(clamped);
+    this.addLog(`🌌 ${player.emoji} ${player.name} dịch chuyển tới Ô #${clamped}: ${dest.name}!`);
+    gameEventBus.emit('portal:teleported', {
+      playerId,
+      fromTile,
+      toTile: clamped,
+      reason: 'PORTAL_20'
+    });
+    return { ok: true, targetTileIndex: clamped, passedStart };
   }
 
+  /**
+   * Warps player through the Nether Obsidian Portal (1 Nether step = 8 Overworld steps) and awards `netherWarpGoldBonus`
+   */
   public warpThroughNetherPortal(
     playerId: string,
     forcedNetherDie?: number
@@ -934,505 +1527,163 @@ export class GameEngine {
     overworldSteps: number;
     targetTileIndex: number;
     passedStart: boolean;
+    bonusGold: number;
   } {
     const player = this.getPlayerById(playerId);
-    const netherDie = forcedNetherDie ?? Math.floor(Math.random() * 5) + 1; // 1..5 Nether steps -> 8..40 Overworld steps
+    const fromTile = player.position;
+    const netherDie =
+      typeof forcedNetherDie === 'number' && forcedNetherDie >= 1 && forcedNetherDie <= 6
+        ? Math.round(forcedNetherDie)
+        : Math.floor(Math.random() * 6) + 1;
     const overworldSteps = netherDie * 8;
-    const oldPos = player.position;
-    const target = (oldPos + overworldSteps) % BOARD_SIZE;
+    const rawDest = fromTile + overworldSteps;
+    const passedStart = rawDest >= BOARD_SIZE;
+    const picked = rawDest % BOARD_SIZE;
 
-    const passedStart = oldPos + overworldSteps >= BOARD_SIZE;
-    player.position = target;
-    const enderBonus =
-      player.characterId === 'enderman' ? GAME_RULES_CONFIG.endermanPortalBonus : 0;
-    player.gold += 120 + enderBonus; // Piglin Bastion Gold Bonus (+ Enderman Passive)
+    player.position = picked;
 
     if (passedStart) {
-      const startBonus = this.getStartBonus(player);
+      const startBonus =
+        player.characterId === 'alex'
+          ? GAME_RULES_CONFIG.passStartReward + GAME_RULES_CONFIG.alexStartBonus
+          : GAME_RULES_CONFIG.passStartReward;
       player.gold += startBonus;
-      this.addLog(
-        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin & +$${startBonus} Qua Khởi Hành${
-          enderBonus > 0 ? ` • Nội tại Enderman +$${enderBonus}` : ''
-        })!`
-      );
-    } else {
-      this.addLog(
-        `🟣 ${player.emoji} ${player.name} bước qua Cổng Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới [${this.getTileConfig(target).name}] (+$120 Vàng Piglin${
-          enderBonus > 0 ? ` • Nội tại Enderman +$${enderBonus}` : ''
-        })!`
-      );
     }
 
+    const bonus =
+      player.characterId === 'enderman'
+        ? GAME_RULES_CONFIG.netherWarpGoldBonus + GAME_RULES_CONFIG.endermanPortalBonus
+        : GAME_RULES_CONFIG.netherWarpGoldBonus;
+    player.gold += bonus;
+
+    const dest = this.getTileConfig(picked);
+    this.addLog(
+      `🟣 ${player.emoji} ${player.name} bước qua Cổng Địa Ngục Nether (${netherDie} bước Nether = ${overworldSteps} bước Overworld) tới Ô #${picked} (${dest.name}) và nhận +$${bonus}!`
+    );
+    gameEventBus.emit('portal:teleported', {
+      playerId,
+      fromTile,
+      toTile: picked,
+      reason: 'NETHER_33'
+    });
     return {
       netherDie,
       overworldSteps,
-      targetTileIndex: target,
-      passedStart
+      targetTileIndex: picked,
+      passedStart,
+      bonusGold: bonus
     };
   }
 
-  /**
-   * Executes the confirmed rent payment (or direct bankruptcy elimination if player.gold < rent)
-   * after the player presses [Space] on the rent notification modal!
-   */
-  public executeConfirmedRentPayment(
-    playerId: string,
-    tileIndex = this.getPlayerById(playerId).position
-  ): ConfirmedRentPaymentResult {
-    const player = this.getPlayerById(playerId);
-    const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-    const owner = state.ownerId ? this.getPlayerById(state.ownerId) : player;
-
-    const rentRequired = this.calculateRent(tileIndex);
-    const rentReason = this.getFormattedRentReason(tileIndex);
-    const payerPrevGold = player.gold;
-    const ownerPrevGold = owner.gold;
-
-    if (player.gold >= rentRequired) {
-      player.gold -= rentRequired;
-      owner.gold += rentRequired;
-      this.addLog(
-        `💸 ${player.emoji} ${player.name} đã thanh toán $${rentRequired} tại [${cfg.name}] cho ${owner.emoji} ${owner.name} (Lý do: ${rentReason})!`
-      );
-
-      return {
-        bankrupt: false,
-        paidAmount: rentRequired,
-        rentRequired,
-        payerPrevGold,
-        payerNewGold: player.gold,
-        ownerPrevGold,
-        ownerNewGold: owner.gold,
-        ownerId: owner.id,
-        ownerName: owner.name,
-        rentReason
-      };
-    }
-
-    // Direct Bankruptcy: player does not have enough gold to pay the rent!
-    const paidAmount = Math.max(0, player.gold);
-    owner.gold += paidAmount;
-    player.gold = 0;
-    player.bankrupt = true;
-    player.skipTurns = 0;
-
-    // Release all properties owned by the bankrupt player back to unowned free land
-    for (const t of this.tiles) {
-      if (t.ownerId === player.id) {
-        t.ownerId = null;
-        t.level = 0;
-        t.festivalMultiplier = 1;
-      }
-    }
-
-    this.addLog(
-      `💀 PHÁ SẢN! ${player.emoji} ${player.name} không đủ tiền trả $${rentRequired} tại [${cfg.name}] của ${owner.emoji} ${owner.name} và chính thức bị loại khỏi đường đua!`
-    );
-
-    this.checkVictoryAfterElimination();
-
-    return {
-      bankrupt: true,
-      paidAmount,
-      rentRequired,
-      payerPrevGold,
-      payerNewGold: 0,
-      ownerPrevGold,
-      ownerNewGold: owner.gold,
-      ownerId: owner.id,
-      ownerName: owner.name,
-      rentReason
-    };
-  }
-
-  public checkVictoryAfterElimination(): void {
-    const activePlayers = this.players.filter((p) => !p.bankrupt);
-    if (activePlayers.length === 1) {
-      this.winnerId = activePlayers[0].id;
-      this.addLog(
-        `🏆 CHIẾN THẮNG! ${activePlayers[0].emoji} ${activePlayers[0].name} trở thành Tỷ Phú Độc Tôn trên Đảo Nổi!`
-      );
-    }
-  }
-
-  public resolveTileLanding(
-    playerId: string,
-    options?: { deferRentPayment?: boolean; forcedCardId?: string }
-  ): TileResolutionResult {
-    const player = this.getPlayerById(playerId);
-    const tileIndex = player.position;
-    const cfg = this.getTileConfig(tileIndex);
-    const state = this.getTileState(tileIndex);
-
-    switch (cfg.type) {
-      case 'START':
-        return {
-          action: 'START_LANDED',
-          tileIndex,
-          tileName: cfg.name,
-          message: `${player.name} dừng ngay tại ${cfg.name}! Nhận nguồn năng lượng thịnh vượng.`
-        };
-
-      case 'PROPERTY':
-      case 'RAILROAD':
-      case 'UTILITY': {
-        if (state.ownerId === null) {
-          const price = cfg.price ?? 100;
-          if (player.gold >= price) {
-            return {
-              action: 'CAN_BUY_PROPERTY',
-              tileIndex,
-              tileName: cfg.name,
-              amount: price,
-              message: `[${cfg.name}] đang còn trống! Mua ngay với giá $${price}?`
-            };
-          }
-          return {
-            action: 'INSUFFICIENT_GOLD',
-            tileIndex,
-            tileName: cfg.name,
-            amount: price,
-            message: `[${cfg.name}] có giá $${price} nhưng bạn chỉ còn $${player.gold}.`
-          };
-        }
-
-        if (state.ownerId === player.id) {
-          if (cfg.type === 'PROPERTY' && state.level < 4) {
-            const evenCheck = this.canUpgradePropertyEvenly(player.id, tileIndex);
-            const upCost = this.getEffectiveUpgradeCost(player.id, tileIndex);
-            if (evenCheck.allowed && player.gold >= upCost) {
-              return {
-                action: 'CAN_UPGRADE_PROPERTY',
-                tileIndex,
-                tileName: cfg.name,
-                amount: upCost,
-                message: `Chào mừng về lãnh địa! Nâng cấp [${cfg.name}] lên Cấp ${state.level + 1} với $${upCost}${
-                  player.characterId === 'steve'
-                    ? ` (Đã giảm ${GAME_RULES_CONFIG.steveUpgradeDiscountPct}% nội tại Steve)`
-                    : ''
-                }?`
-              };
-            }
-            if (!evenCheck.allowed && evenCheck.reason) {
-              return {
-                action: 'MAX_LEVEL_OWNED',
-                tileIndex,
-                tileName: cfg.name,
-                message: evenCheck.reason
-              };
-            }
-          }
-          return {
-            action: 'MAX_LEVEL_OWNED',
-            tileIndex,
-            tileName: cfg.name,
-            message: `${player.name} đang nghỉ ngơi tại lãnh địa [${cfg.name}] của mình.`
-          };
-        }
-
-        const owner = this.getPlayerById(state.ownerId);
-        if (state.mortgaged) {
-          this.addLog(
-            `📜 ${player.emoji} ${player.name} dừng tại [${cfg.name}] của ${owner.name}, nhưng ô đất đang Thế Chấp nên được miễn tiền thuê!`
-          );
-          return {
-            action: 'MAX_LEVEL_OWNED',
-            tileIndex,
-            tileName: cfg.name,
-            message: `Ô [${cfg.name}] của ${owner.name} đang Thế Chấp Ngân Hàng nên được miễn thu tiền thuê!`
-          };
-        }
-        const rent = this.calculateRent(tileIndex);
-        const rentReason = this.getFormattedRentReason(tileIndex);
-        const canAffordRent = player.gold >= rent;
-        const buyoutCost = this.getBuyoutCost(tileIndex);
-        const canBuyoutAfterRent =
-          buyoutCost !== null && player.gold >= rent + buyoutCost;
-        const payerPrevGold = player.gold;
-        const ownerPrevGold = owner.gold;
-
-        if (!options?.deferRentPayment) {
-          player.gold -= rent;
-          owner.gold += rent;
-          this.addLog(
-            `💸 ${player.emoji} ${player.name} trả $${rent} tiền thuê tại [${cfg.name}] cho ${owner.emoji} ${owner.name}!`
-          );
-          this.checkBankruptcy(player, owner.id);
-        }
-
-        return {
-          action: 'PAID_RENT',
-          tileIndex,
-          tileName: cfg.name,
-          amount: rent,
-          ownerId: owner.id,
-          ownerName: owner.name,
-          rentReason,
-          canAffordRent,
-          buyoutCost,
-          canBuyoutAfterRent,
-          payerPrevGold,
-          ownerPrevGold,
-          message: canAffordRent
-            ? `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên sẽ phải trả $${rent}!`
-            : `Bạn đã đi vào đất [${cfg.name}] của ${owner.name}. Vì ${rentReason} nên phải trả $${rent}, nhưng bạn chỉ còn $${player.gold} — Không đủ tiền mặt!`
-        };
-      }
-
-      case 'CHEST': {
-        const isKhiVanTile = tileIndex === 2 || tileIndex === 17 || tileIndex === 33;
-        const desiredDeck: 'KHI_VAN' | 'CO_HOI' = isKhiVanTile ? 'KHI_VAN' : 'CO_HOI';
-        const deckLabel = desiredDeck === 'KHI_VAN' ? 'Khí Vận' : 'Cơ Hội';
-
-        const forcedCard = options?.forcedCardId
-          ? CHEST_CARDS.find((c) => c.id === options.forcedCardId)
-          : undefined;
-        const deckPool = CHEST_CARDS.filter((c) => c.deck === desiredDeck);
-        const pool = deckPool.length > 0 ? deckPool : CHEST_CARDS;
-        const card = forcedCard ?? pool[Math.floor(Math.random() * pool.length)];
-
-        const prevGold = player.gold;
-        let effectiveGoldDelta = 0;
-
-        if (card.collectFromEachPlayer && card.collectFromEachPlayer > 0) {
-          for (const other of this.players) {
-            if (other.id === player.id || other.bankrupt) continue;
-            const collected = Math.min(other.gold, card.collectFromEachPlayer);
-            other.gold -= collected;
-            player.gold += collected;
-            effectiveGoldDelta += collected;
-          }
-        } else if (card.goldDelta) {
-          player.gold += card.goldDelta;
-          effectiveGoldDelta += card.goldDelta;
-        }
-
-        if (card.grantGetOutOfJailCard) {
-          player.jailFreeCards = (player.jailFreeCards ?? 0) + 1;
-        }
-
-        const oldPos = player.position;
-        let movedFromTile: number | undefined;
-        let movedToTile: number | undefined;
-        let moveDirection: 'FORWARD' | 'BACKWARD' | undefined;
-        let sentToJailByCard: boolean | undefined;
-
-        if (card.goToJail) {
-          this.sendPlayerToJail(player.id, `Thẻ ${deckLabel}: ${card.title}`);
-          movedFromTile = oldPos;
-          movedToTile = 10;
-          sentToJailByCard = true;
-        } else if (typeof card.moveToTile === 'number') {
-          const target = ((card.moveToTile % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
-          if (target !== 0 && target < oldPos) {
-            const bonus = this.getStartBonus(player);
-            player.gold += bonus;
-            effectiveGoldDelta += bonus;
-            this.addLog(
-              `🚩 ${player.emoji} ${player.name} bay qua Đại Lộ Khởi Hành và nhận +$${bonus}!`
-            );
-          }
-          player.position = target;
-          movedFromTile = oldPos;
-          movedToTile = target;
-          moveDirection = 'FORWARD';
-        } else if (typeof card.stepDelta === 'number' && card.stepDelta !== 0) {
-          const rawPos = player.position + card.stepDelta;
-          if (card.stepDelta > 0 && rawPos >= BOARD_SIZE) {
-            const bonus = this.getStartBonus(player);
-            player.gold += bonus;
-            effectiveGoldDelta += bonus;
-          }
-          const target = ((rawPos % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
-          player.position = target;
-          movedFromTile = oldPos;
-          movedToTile = target;
-          moveDirection = card.stepDelta >= 0 ? 'FORWARD' : 'BACKWARD';
-        }
-
-        this.addLog(
-          `${desiredDeck === 'KHI_VAN' ? '🧧' : '⚡'} ${player.emoji} ${player.name} rút thẻ [${deckLabel}]: ${card.title}`
-        );
-        this.checkBankruptcy(player, null);
-        return {
-          action: 'CHEST_DRAWN',
-          tileIndex,
-          tileName: cfg.name,
-          amount: effectiveGoldDelta,
-          payerPrevGold: prevGold,
-          chestCard: card,
-          movedFromTile,
-          movedToTile,
-          moveDirection,
-          sentToJailByCard,
-          message: `[${deckLabel}] ${card.title} — ${card.description}`
-        };
-      }
-
-      case 'DESERTED_ISLAND': {
-        // Vietnamese Monopoly Rule (#10): Walking onto #10 is "Thăm Tù" (Just Visiting) — no turn penalty!
-        player.inJail = false;
-        player.skipTurns = 0;
-        this.addLog(
-          `👀 THĂM TÙ! ${player.emoji} ${player.name} ghé thăm bên ngoài [${cfg.name}] — Hoàn toàn tự do, không mất lượt!`
-        );
-        return {
-          action: 'JUST_VISITING_JAIL',
-          tileIndex,
-          tileName: cfg.name,
-          message: `👀 ${player.name} chỉ đang Ghé Thăm Tù tại [${cfg.name}] — Hoàn toàn tự do và không bị mất lượt!`
-        };
-      }
-
-      case 'FESTIVAL': {
-        const ownedTiles = this.tiles.filter((t) => t.ownerId === player.id);
-        return {
-          action: 'CHOOSE_FESTIVAL_TILE',
-          tileIndex,
-          tileName: cfg.name,
-          message:
-            ownedTiles.length > 0
-              ? `🎉 Đại Tiệc Lễ Hội! Chọn 1 ô đất của bạn để NHÂN ĐÔI (x2) tiền thuê!`
-              : `🎉 Đại Tiệc Lễ Hội! Bạn được nhận +$80 tiền thưởng lễ hội!`,
-          amount: ownedTiles.length === 0 ? 80 : undefined
-        };
-      }
-
-      case 'END_PORTAL': {
-        // Vietnamese Monopoly Rule (#30): "Đi Thẳng Vào Tù" sends player directly to #10 Jail (Ở Tù)
-        this.sendPlayerToJail(player.id, `Bước vào ô #30 [${cfg.name}]`);
-        return {
-          action: 'SENT_TO_JAIL',
-          tileIndex,
-          tileName: cfg.name,
-          movedFromTile: tileIndex,
-          movedToTile: 10,
-          message: `🌀 ${player.name} bước vào Cổng Không Gian The End tại [${cfg.name}], bị hút xoáy xuống hố đen và rơi từ Cổng Không Gian trên bầu trời thẳng xuống #10 Nhà Tù Chí Hòa!`
-        };
-      }
-
-      case 'NETHER_PORTAL': {
-        return {
-          action: 'NETHER_PORTAL_READY',
-          tileIndex,
-          tileName: cfg.name,
-          amount: 120,
-          message: `🟣 Cổng Obsidian Nether đang xoáy tím rực! Bước qua cổng để nhảy vọt xuyên chiều không gian (1 bước Nether = 8 bước Overworld) và nhận +$120 Vàng Piglin!`
-        };
-      }
-
-      case 'ROYAL_TAX': {
-        const baseTax = cfg.price ?? 120;
-        const tax = this.getEffectiveTaxAmount(player.id, baseTax);
-        const prevGold = player.gold;
-        player.gold -= tax;
-        this.addLog(
-          `🏛️ ${player.emoji} ${player.name} nộp ${cfg.name} -$${tax}${
-            player.characterId === 'creeper' ? ' (Nội tại Creeper -20%)' : ''
-          }.`
-        );
-        this.checkBankruptcy(player, null);
-        return {
-          action: 'PAID_ROYAL_TAX',
-          tileIndex,
-          tileName: cfg.name,
-          amount: tax,
-          rentReason: cfg.rentReason || `nộp ${cfg.name} theo quy định đô thị`,
-          payerPrevGold: prevGold,
-          message: `Vì ${cfg.rentReason || `quy định ${cfg.name}`}, bạn phải nộp -$${tax}${
-            player.characterId === 'creeper' ? ' (Đã giảm 20% nội tại Creeper)' : ''
-          } vào Kho Bạc Thành Phố!`
-        };
-      }
-    }
-  }
-
-  /**
-   * Emergency 75% property liquidation when a player's gold drops below 0
-   */
-  private checkBankruptcy(player: PlayerState, creditorId: string | null): void {
-    if (player.gold >= 0) return;
-
-    const ownedTiles = this.tiles
-      .filter((t) => t.ownerId === player.id)
-      .sort((a, b) => this.calculateRent(a.index) - this.calculateRent(b.index));
-
-    for (const tileState of ownedTiles) {
-      if (player.gold >= 0) break;
-      const cfg = this.getTileConfig(tileState.index);
-      const basePrice = cfg.price ?? 100;
-      const upgradeTotal = Math.max(0, tileState.level - 1) * (cfg.upgradeCost ?? 60);
-      const resaleValue = Math.round((basePrice + upgradeTotal) * 0.75);
-
-      player.gold += resaleValue;
-      tileState.ownerId = null;
-      tileState.level = 0;
-      tileState.festivalMultiplier = 1;
-
-      this.addLog(
-        `🏦 ${player.emoji} ${player.name} bán khẩn cấp [${cfg.name}] thu về +$${resaleValue} (75% giá trị) để trả nợ!`
-      );
-    }
-
-    if (player.gold >= 0) {
-      return;
-    }
-
-    player.bankrupt = true;
-    player.gold = 0;
-    player.skipTurns = 0;
-    this.addLog(`💀 ${player.emoji} ${player.name} đã chính thức phá sản và rời khỏi đường đua!`);
-
-    for (const t of this.tiles) {
-      if (t.ownerId === player.id) {
-        if (creditorId) {
-          t.ownerId = null;
-          t.level = 0;
-          t.festivalMultiplier = 1;
-        } else {
-          t.ownerId = null;
-          t.level = 0;
-          t.festivalMultiplier = 1;
-        }
-      }
-    }
-
-    this.checkVictoryAfterElimination();
-  }
-
-  public nextTurn(): { activePlayer: PlayerState; skippedPlayer?: PlayerState; extraTurn?: boolean } {
-    if (this.canTakeExtraDoublesTurn()) {
-      const current = this.getCurrentPlayer();
-      return { activePlayer: current, extraTurn: true };
-    }
-
-    this.consecutiveDoubles = 0;
-    const total = this.players.length;
+  public nextTurn(): { activePlayer: PlayerState; skippedPlayer?: PlayerState } {
+    let attempts = 0;
     let skippedPlayer: PlayerState | undefined;
 
-    for (let step = 0; step < total * 2; step++) {
-      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % total;
+    while (attempts < this.players.length * 2) {
+      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
       if (this.currentPlayerIndex === 0) {
         this.round += 1;
+        this.tickDownFestivalMultipliers();
       }
 
       const candidate = this.players[this.currentPlayerIndex];
-      if (candidate.bankrupt) continue;
+      if (candidate.bankrupt) {
+        attempts++;
+        continue;
+      }
 
       if (candidate.skipTurns > 0) {
         candidate.skipTurns -= 1;
         skippedPlayer = candidate;
         this.addLog(
-          `🏝️ ${candidate.emoji} ${candidate.name} đang bị tạm giữ tại Đảo Cách Ly (Bỏ qua lượt này).`
+          `⏳ ${candidate.emoji} ${candidate.name} đang bị giữ chân tại Đảo Hoang, bỏ qua lượt này.`
         );
+        attempts++;
         continue;
       }
 
+      gameEventBus.emit('turn:started', {
+        round: this.round,
+        playerId: candidate.id,
+        playerName: candidate.name
+      });
       return { activePlayer: candidate, skippedPlayer };
     }
 
-    return { activePlayer: this.getCurrentPlayer(), skippedPlayer };
+    return { activePlayer: this.getCurrentPlayer() };
+  }
+
+  /**
+   * Ticks down active Festival x2 multipliers by 1 round when a full round completes,
+   * resetting `festivalMultiplier = 1` when `festivalTurnsLeft` reaches 0.
+   */
+  private tickDownFestivalMultipliers(): void {
+    for (const st of this.tiles) {
+      if (st.festivalMultiplier > 1 && typeof st.festivalTurnsLeft === 'number') {
+        if (st.festivalTurnsLeft > 0) {
+          st.festivalTurnsLeft -= 1;
+          if (st.festivalTurnsLeft <= 0) {
+            st.festivalMultiplier = 1;
+            st.festivalTurnsLeft = 0;
+            const cfg = this.getTileConfig(st.index);
+            this.addLog(`🎪 Lễ hội tại ${cfg.name} đã khép lại sau 3 vòng (tiền thuê trở về x1).`);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Checks if `player` has 0 gold and automatically liquidates their cheapest property using
+   * dynamic `GAME_RULES_CONFIG.liquidationRatePct` and `getEffectiveUpgradeCost` (respecting Steve's discount).
+   */
+  private checkBankruptcy(player: PlayerState): void {
+    if (player.gold > 0) return;
+
+    while (player.gold <= 0) {
+      const owned = this.tiles.filter((t) => t.ownerId === player.id);
+      if (owned.length === 0) break;
+
+      owned.sort(
+        (a, b) =>
+          (this.getTileConfig(a.index).price ?? 0) -
+          (this.getTileConfig(b.index).price ?? 0)
+      );
+      const soldTile = owned[0];
+      const payout = this.getLiquidationValue(soldTile.index);
+      const cfg = this.getTileConfig(soldTile.index);
+
+      player.gold += payout;
+      soldTile.ownerId = null;
+      soldTile.level = 0;
+      soldTile.festivalMultiplier = 1;
+      soldTile.festivalTurnsLeft = 0;
+      soldTile.mortgaged = false;
+
+      this.addLog(
+        `🏦 Ngân hàng thanh lý khẩn cấp ${cfg.name} của ${player.emoji} ${player.name} thu về +$${payout} để tránh phá sản!`
+      );
+    }
+
+    if (player.gold > 0) return;
+
+    player.bankrupt = true;
+    for (const t of this.tiles) {
+      if (t.ownerId === player.id) {
+        t.ownerId = null;
+        t.level = 0;
+        t.festivalMultiplier = 1;
+        t.festivalTurnsLeft = 0;
+        t.mortgaged = false;
+      }
+    }
+    this.addLog(`💀 ${player.emoji} ${player.name} đã phá sản! Toàn bộ tài sản hoàn về Ngân hàng.`);
+
+    const alive = this.players.filter((p) => !p.bankrupt);
+    if (alive.length === 1) {
+      this.winnerId = alive[0].id;
+      this.addLog(`🏆 CHIẾN THẮNG! ${alive[0].emoji} ${alive[0].name} thống trị Đảo Voxel!`);
+    }
   }
 
   public serialize(): SerializedGameState {
@@ -1440,11 +1691,11 @@ export class GameEngine {
       mode: this.mode,
       round: this.round,
       currentPlayerIndex: this.currentPlayerIndex,
-      players: structuredClone(this.players),
-      tiles: structuredClone(this.tiles),
-      lastDice: this.lastDice ? [...this.lastDice] : null,
-      winnerId: this.winnerId,
-      logs: [...this.logs]
+      lastDiceTotal: this.lastDiceTotal,
+      players: this.players.map((p) => ({ ...p })),
+      tiles: this.tiles.map((t) => ({ ...t })),
+      logs: [...this.logs],
+      winnerId: this.winnerId
     };
   }
 
@@ -1452,10 +1703,10 @@ export class GameEngine {
     this.mode = snapshot.mode;
     this.round = snapshot.round;
     this.currentPlayerIndex = snapshot.currentPlayerIndex;
-    this.players = structuredClone(snapshot.players);
-    this.tiles = structuredClone(snapshot.tiles);
-    this.lastDice = snapshot.lastDice ? [...snapshot.lastDice] : null;
-    this.winnerId = snapshot.winnerId;
+    this.lastDiceTotal = snapshot.lastDiceTotal;
+    this.players = snapshot.players.map((p) => ({ ...p }));
+    this.tiles = snapshot.tiles.map((t) => ({ ...t }));
     this.logs = [...snapshot.logs];
+    this.winnerId = snapshot.winnerId;
   }
 }

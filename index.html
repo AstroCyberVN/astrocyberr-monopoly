@@ -1,81 +1,144 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AstroCyberr Monopoly — Cờ Tỷ Phú 3D Minecraft Chibi (40 Ô)</title>
+    <title>ASTROCYBERR MONOPOLY — Cờ Tỷ Phú Sài Gòn Voxel Cyber-Craft 3D (40 Ô)</title>
+    <meta
+      name="description"
+      content="Trải nghiệm Cờ Tỷ Phú 3D Sài Gòn Voxel Cyber-Craft 40 Ô: từ Bến Nhà Rồng, Chợ Lớn, Thủ Thiêm tới Chợ Bến Thành & Dinh Độc Lập cùng 4 nhân vật Chibi (Steve, Alex, Creeper, Enderman), PixelFX 2-Buffer và đồng bộ Supabase Realtime."
+    />
+    <meta property="og:title" content="ASTROCYBERR MONOPOLY — Sài Gòn Voxel Cyber-Craft 3D" />
+    <meta
+      property="og:description"
+      content="Đảo nổi Voxel 3D 40 ô địa danh Sài Gòn – Việt Nam, đấu giá công khai, thương lượng đổi đất, thôn tính lãnh địa và hiệu ứng PixelFX rực rỡ."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#10b981" />
+    <link rel="manifest" href="/manifest.json" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "AstroCyberr Monopoly — Sài Gòn Voxel Cyber-Craft 3D",
+        "genre": ["Board Game", "Strategy", "3D Voxel"],
+        "gamePlatform": "Web Browser (WebGL / Three.js)",
+        "applicationCategory": "Game",
+        "inLanguage": "vi",
+        "numberOfPlayers": {
+          "@type": "QuantitativeValue",
+          "minValue": 1,
+          "maxValue": 4
+        }
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@600;700;800;900&family=Chakra+Petch:wght@700;800&family=Nunito:wght@700;800;900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@500;600;700;800;900&family=Chakra+Petch:wght@700;800&family=Nunito:wght@600;700;800;900&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
     <div id="app">
-      <!-- 3D WebGL Canvas Container -->
-      <div id="canvas-container" aria-label="Bàn cờ 3D Đảo Nổi 40 Ô AstroCyberr Monopoly"></div>
+      <!-- 3D WebGL Floating Island Canvas -->
+      <div id="canvas-container" aria-label="Bàn cờ 3D Đảo Nổi Sài Gòn Voxel 40 Ô"></div>
 
-      <!-- 2D Parabolic Flying '$' Overlay Container -->
-      <div id="fx-2d-overlay" class="fx-2d-overlay" aria-hidden="true"></div>
+      <!-- 2D Parabolic Flying '$' Banknotes Overlay Layer -->
+      <div id="fx-2d-overlay" class="fx-2d-overlay"></div>
 
-      <!-- Top Navigation Bar (Vietnamese Font + Camera Normal/Live [F] + Reset [R] + Settings) -->
+      <!-- TOP NAVIGATION BAR -->
       <header id="top-hud">
         <div class="brand-badge">
-          <span class="brand-icon">⛏️</span>
-          <h1 class="brand-title">ASTROCYBERR MONOPOLY</h1>
+          <span class="brand-icon">🏝️</span>
+          <span class="brand-title">ASTROCYBERR MONOPOLY</span>
         </div>
 
-        <div class="turn-banner" id="turn-banner">
-          <span class="turn-round" id="round-counter">VÒNG 1</span>
-          <span class="turn-player-name" id="active-player-banner">Lượt: STEVE</span>
-          <button
-            id="btn-time-of-day"
-            class="time-of-day-pill"
-            title="Chu kỳ Ngày / Hoàng Hôn / Đêm Sao (Click để đổi nhanh)"
-          >
-            ☀️ Ngày
-          </button>
+        <div class="turn-banner" aria-live="polite">
+          <span id="round-counter" class="turn-round">VÒNG 1</span>
+          <span id="active-player-banner" class="turn-player-name">Lượt: STEVE</span>
+          <span id="room-status-pill" class="turn-round hidden" style="background:#38bdf8;color:#0f172a"></span>
         </div>
 
         <div class="nav-right-wrapper">
-          <!-- Dual Camera Mode Switcher: Normal vs Live (Press F to toggle quickly) -->
-          <div class="cam-mode-segmented" role="group" aria-label="Chế độ Camera (Phím F)">
+          <!-- Open 3D Lobby / New Match Setup Modal -->
+          <button
+            id="btn-open-lobby"
+            class="cam-reset-btn"
+            style="border-color:rgba(52,211,153,0.55);color:#6ee7b7"
+            title="Mở Sảnh Chờ 3D: Chọn Chế Độ Chơi, Nhân Vật & Mã Phòng Online"
+          >
+            🎮 Sảnh Chờ / Ván Mới
+          </button>
+
+          <!-- Open Player-to-Player / Player-to-Bot Property Trade Modal -->
+          <button
+            id="btn-open-trade"
+            class="cam-reset-btn"
+            style="border-color:rgba(251,191,36,0.55);color:#fde047"
+            title="Thương lượng Mua / Đổi Đất với người chơi khác hoặc AI Bot"
+          >
+            🤝 Thương Lượng
+          </button>
+
+          <!-- Quick 3D Chibi Emote Bar Trigger -->
+          <div class="emote-popover-wrap" style="position:relative">
+            <button
+              id="btn-open-emotes"
+              class="cam-reset-btn"
+              title="Thả biểu cảm 3D lên đầu nhân vật Chibi"
+            >
+              💬 Biểu Cảm
+            </button>
+            <div id="emote-quick-bar" class="emote-quick-bar hidden">
+              <button type="button" class="emote-chip-btn" data-emote="👋 Chào nhé!" data-mood="WAVE">👋 Chào</button>
+              <button type="button" class="emote-chip-btn" data-emote="🤑 Giàu to rồi!" data-mood="HAPPY">🤑 Giàu to</button>
+              <button type="button" class="emote-chip-btn" data-emote="😭 Đau ví quá!" data-mood="SAD">😭 Đau ví</button>
+              <button type="button" class="emote-chip-btn" data-emote="⚔️ Thôn tính!" data-mood="TAKEOVER">⚔️ Thôn tính</button>
+            </div>
+          </div>
+
+          <!-- Dual-Mode Camera Switcher: Normal vs Live -->
+          <div class="cam-mode-segmented" role="group" aria-label="Chế độ góc máy 3D">
             <button
               id="btn-cam-normal"
               class="cam-seg-btn active"
-              title="Camera Normal: Kéo chuột tự do 360° mọi góc độ quanh đảo (Phím tắt: F)"
+              title="Cam Thường: Giữ chuột xoay tự do 360° & nghiêng mọi góc"
             >
-              <span>🎥 Normal</span>
+              🎥 Cam Thường <kbd class="key-hint">F</kbd>
             </button>
             <button
               id="btn-cam-live"
               class="cam-seg-btn"
-              title="Camera Live: Góc máy đạo diễn 3 pha tự động bám theo nhân vật đang tới lượt (Phím tắt: F)"
+              title="Cam Live: Tự động bám theo từng bước nhảy của nhân vật đang đi"
             >
-              <span>🎬 Live</span>
-              <kbd class="key-hint">F</kbd>
+              🎬 Cam Live <kbd class="key-hint">F</kbd>
             </button>
           </div>
 
+          <!-- Quick Reset to Panoramic Island View -->
           <button
             id="btn-cam-reset"
             class="cam-reset-btn"
-            title="Đưa camera về góc nhìn toàn cảnh (Phím tắt: R)"
+            title="Thu phóng về góc nhìn toàn cảnh 40 ô (Phím R)"
           >
-            <span>🔄 Toàn Cảnh</span>
-            <kbd class="key-hint">R</kbd>
+            🧭 Toàn Cảnh <kbd class="key-hint">R</kbd>
           </button>
 
+          <!-- UPG-01: Dynamic Time-of-Day Cycle Pill -->
           <button
-            id="btn-settings-gear"
-            class="gear-icon-btn"
-            aria-label="Cài đặt hệ thống"
-            title="Cài đặt hệ thống"
+            id="btn-time-of-day"
+            class="cam-reset-btn"
+            title="Đổi thời gian ánh sáng trên đảo: Ngày -> Hoàng Hôn -> Đêm Sao"
           >
+            ☀️ Ngày
+          </button>
+
+          <!-- Settings Gear Icon + Redesigned Modern Popover -->
+          <button id="btn-settings-gear" class="gear-icon-btn" title="Cài đặt Âm thanh & Tốc độ">
             <svg
-              width="20"
-              height="20"
+              width="19"
+              height="19"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -90,17 +153,16 @@
             </svg>
           </button>
 
-          <!-- Streamlined Modern Settings Popover Menu (SFX, BGM, Master Volume, Speed Slider 1x..5x) -->
+          <!-- Redesigned Modern Settings Popover -->
           <div id="settings-popover" class="settings-popover hidden">
             <div class="popover-title">
-              <span>⚙️ CÀI ĐẶT HỆ THỐNG</span>
-              <span class="popover-version">v4.0</span>
+              <span>⚙️ BẢNG ĐIỀU KHIỂN TRÒ CHƠI</span>
+              <span class="popover-version">v5.0</span>
             </div>
 
-            <!-- Toggle Switch: SFX -->
-            <div class="popover-row" id="btn-sfx-toggle" role="button" tabindex="0">
+            <div class="popover-row" id="btn-sfx-toggle" role="switch" aria-checked="true" tabindex="0">
               <div class="popover-row-label">
-                <span>🔊 Hiệu Ứng Âm Thanh</span>
+                <span>🔊 Hiệu Ứng Âm Thanh (SFX)</span>
                 <small id="sfx-status-label" class="emerald-text">Đang bật</small>
               </div>
               <div id="sfx-switch-ui" class="toggle-switch on">
@@ -108,10 +170,9 @@
               </div>
             </div>
 
-            <!-- Toggle Switch: BGM -->
-            <div class="popover-row" id="btn-bgm-toggle" role="button" tabindex="0">
+            <div class="popover-row" id="btn-bgm-toggle" role="switch" aria-checked="false" tabindex="0">
               <div class="popover-row-label">
-                <span>🎵 Nhạc Nền 8-Bit</span>
+                <span>🎵 Nhạc Nền Chiptune (BGM)</span>
                 <small id="bgm-status-label" class="muted-text">Đang tắt</small>
               </div>
               <div id="bgm-switch-ui" class="toggle-switch">
@@ -119,26 +180,26 @@
               </div>
             </div>
 
-            <!-- Master Volume Slider -->
             <div class="popover-slider-box">
               <div class="popover-slider-head">
                 <span>🎚️ Âm Lượng Tổng</span>
-                <strong id="volume-pct-label" class="emerald-text">80%</strong>
+                <strong id="volume-pct-label" class="emerald-text">85%</strong>
               </div>
               <input
                 id="slider-master-volume"
                 type="range"
                 min="0"
                 max="100"
-                value="80"
+                value="85"
                 class="volume-range-slider"
+                aria-label="Âm lượng tổng"
               />
             </div>
 
             <!-- Game Speed Slider (1x -> 5x) -->
             <div class="popover-slider-box">
               <div class="popover-slider-head">
-                <span>⚡ Tốc Độ Chạy</span>
+                <span>⚡ Tốc Độ Trò Chơi</span>
                 <strong id="speed-multiplier-label" class="emerald-text">1x</strong>
               </div>
               <input
@@ -146,23 +207,17 @@
                 type="range"
                 min="1"
                 max="5"
-                step="0.5"
+                step="1"
                 value="1"
                 class="volume-range-slider"
+                aria-label="Tốc độ trò chơi"
               />
-              <div class="speed-scale-ticks">
-                <span>1x</span>
-                <span>2x</span>
-                <span>3x</span>
-                <span>4x</span>
-                <span>5x</span>
-              </div>
             </div>
 
-            <!-- Toggle Switch: Reduced Motion (UX-04) -->
-            <div class="popover-row" id="btn-reduced-motion-toggle" role="button" tabindex="0">
+            <!-- UX-04: Reduced Motion Toggle -->
+            <div class="popover-row" id="btn-reduced-motion-toggle" role="switch" aria-checked="false" tabindex="0">
               <div class="popover-row-label">
-                <span>🧘 Giảm Rung & Chuyển Động</span>
+                <span>🧘 Giảm Chuyển Động (Êm Dịu)</span>
                 <small id="reduced-motion-status-label" class="muted-text">Đang tắt</small>
               </div>
               <div id="reduced-motion-switch-ui" class="toggle-switch">
@@ -173,67 +228,157 @@
         </div>
       </header>
 
-      <!-- Highlighted 4-Player Cards Sidebar (Left: Model on Grass Block + Name + $ Coin + Status Badges) -->
-      <aside id="players-sidebar" aria-label="Danh sách 4 người chơi"></aside>
+      <!-- LEFT SIDEBAR: 4 PLAYER CARDS WITH NET WORTH & 8 COLOR GROUP DOTS -->
+      <aside id="players-sidebar" aria-label="Danh sách 4 Tỷ Phú Voxel"></aside>
 
-      <!-- Bottom-Left Non-Intrusive Tile Info Popup (Shows ONLY Configured Tile Fields!) -->
-      <section
-        id="tile-popup-bottom-left"
-        class="tile-popup-bottom-left hidden"
-        aria-live="polite"
-      >
-        <div class="tile-popup-header" id="tile-popup-header">
+      <!-- BOTTOM-LEFT NON-INTRUSIVE TILE INFO POPUP (WITH SMART NUDGES: ROI & MARKOV PROBABILITY) -->
+      <aside id="tile-popup-bottom-left" class="tile-popup-bottom-left hidden" aria-live="polite">
+        <div id="tile-popup-header" class="tile-popup-header">
           <div class="tile-popup-title-row">
-            <span id="tile-popup-icon">🚩</span>
-            <h3 id="tile-popup-title">#0 Đại Lộ Khởi Hành</h3>
+            <span id="tile-popup-icon">🏠</span>
+            <h3 id="tile-popup-title">Tên Ô Cờ</h3>
           </div>
-          <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng và hạ ô đất (Esc)">
-            ✕
-          </button>
+          <button id="btn-close-tile-popup" class="tile-popup-close" title="Đóng">✕</button>
         </div>
-        <div class="tile-popup-vertical-body" id="tile-popup-body"></div>
-      </section>
+        <div id="tile-popup-body" class="tile-popup-vertical-body"></div>
+      </aside>
 
-      <!-- Elongated Collapsible Right Event Log Sidebar (Default CLOSED / collapsed on page load!) -->
+      <!-- RIGHT COLLAPSIBLE EVENT LOG DRAWER (Default Closed) -->
       <aside id="event-log-drawer" class="event-log-drawer collapsed">
         <button
           id="btn-toggle-log-drawer"
           class="log-drawer-arrow-btn"
-          title="Mở / Đóng Nhật ký ván đấu"
-          aria-label="Đóng mở nhật ký"
+          title="Mở / Đóng Nhật Ký Sự Kiện"
         >
           <span id="log-drawer-arrow-icon">◀</span>
         </button>
+
         <div class="log-drawer-panel">
           <div class="log-drawer-header">
             <h4>📜 Nhật Ký Ván Đấu</h4>
-            <span id="dice-last-result" class="dice-pill">🎲 --</span>
+            <span id="dice-last-result" class="dice-pill">🎲 Sẵn sàng</span>
           </div>
           <div id="event-log-list" class="event-log-list"></div>
         </div>
       </aside>
 
-      <!-- Floating Action Modal (Mua Đất [Space] / Bỏ Qua [Esc] / Xác Nhận Thanh Toán [Space] / Phá Sản [Space]) -->
-      <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">
-        <div class="action-card-inner" id="action-card-inner"></div>
-      </div>
-
-      <!-- Bottom-Right Roll Dice Dock with Spacebar Power Charge Bar -->
+      <!-- BOTTOM-RIGHT ROLL DICE DOCK WITH SPACEBAR POWER CHARGE BAR -->
       <div id="bottom-right-dock">
         <div id="roll-power-bar-wrap" class="roll-power-bar-wrap">
           <div class="roll-power-label-row">
-            <span>⚡ LỰC NÉM</span>
+            <span>⚡ Lực Ném <kbd class="key-hint">Giữ Space</kbd></span>
             <strong id="roll-power-pct">0%</strong>
           </div>
           <div class="roll-power-track">
             <div id="roll-power-fill" class="roll-power-fill"></div>
           </div>
         </div>
+
         <button id="btn-roll-dice" class="btn-roll-dice">
-          <span class="dice-icon-anim">🎲</span>
+          <span class="dice-btn-icon">🎲</span>
           <span id="btn-roll-text">TUNG XÚC XẮC</span>
           <kbd class="key-hint">Space</kbd>
         </button>
+      </div>
+
+      <!-- FLOATING ACTION CARD (BUY / UPGRADE / RENT / PORTAL / FESTIVAL / AUCTION) -->
+      <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">
+        <div id="action-card-inner" class="action-card-inner"></div>
+      </div>
+
+      <!-- =========================================================
+           3D DIORAMA LOBBY & NEW MATCH SETUP MODAL (#lobby-setup-modal)
+           ========================================================= -->
+      <div id="lobby-setup-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="lobby-modal-title">
+        <div class="modal-box lobby-modal-box">
+          <div class="modal-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:20px">🏝️</span>
+              <h3 id="lobby-modal-title" style="font-family:var(--font-display);font-size:17px;color:#34d399">
+                SẢNH CHỜ 3D • SÀI GÒN VOXEL CYBER-CRAFT
+              </h3>
+            </div>
+            <button id="btn-close-lobby-modal" class="tile-popup-close" style="color:#f8fafc;background:rgba(255,255,255,0.12)" title="Đóng">✕</button>
+          </div>
+
+          <div class="lobby-modal-body">
+            <!-- 1. Game Mode Selection -->
+            <div class="lobby-section">
+              <label class="lobby-section-label">1. Chọn Chế Độ Thi Đấu</label>
+              <div class="lobby-mode-grid">
+                <button type="button" class="lobby-mode-card active" data-lobby-mode="SOLO_VS_AI">
+                  <span class="lobby-mode-icon">🤖</span>
+                  <strong>Đấu Với 3 Tỷ Phú AI</strong>
+                  <small>1 Người chơi đấu trí cùng 3 AI thông minh</small>
+                </button>
+                <button type="button" class="lobby-mode-card" data-lobby-mode="PASS_AND_PLAY">
+                  <span class="lobby-mode-icon">👨‍👩‍👧‍👦</span>
+                  <strong>Chơi Chung Máy (2–4 Người)</strong>
+                  <small>Truyền tay nhau tung xúc xắc trên cùng màn hình</small>
+                </button>
+                <button type="button" class="lobby-mode-card" data-lobby-mode="ONLINE_ROOM">
+                  <span class="lobby-mode-icon">🌐</span>
+                  <strong>Phòng Trực Tuyến (Realtime)</strong>
+                  <small>Đồng bộ qua Supabase Realtime & đa tab</small>
+                </button>
+              </div>
+            </div>
+
+            <!-- Conditional Pass & Play Human Count OR Online Room Code -->
+            <div id="lobby-human-count-row" class="lobby-section hidden">
+              <label class="lobby-section-label">Số lượng người chơi thật trên máy (còn lại là AI):</label>
+              <div class="speed-pill-group">
+                <button type="button" class="speed-pill active" data-human-count="2">2 Người + 2 AI</button>
+                <button type="button" class="speed-pill" data-human-count="3">3 Người + 1 AI</button>
+                <button type="button" class="speed-pill" data-human-count="4">4 Người Chơi</button>
+              </div>
+            </div>
+
+            <div id="lobby-online-room-row" class="lobby-section hidden">
+              <label class="lobby-section-label" for="lobby-room-code-input">Mã Phòng Trực Tuyến (6 ký tự):</label>
+              <div style="display:flex;gap:8px">
+                <input
+                  id="lobby-room-code-input"
+                  type="text"
+                  maxlength="8"
+                  placeholder="VD: SAIGON"
+                  class="lobby-text-input"
+                />
+                <button type="button" id="btn-random-room-code" class="cam-reset-btn">🎲 Tạo Mã Mới</button>
+              </div>
+            </div>
+
+            <!-- 2. Choose Primary Character -->
+            <div class="lobby-section">
+              <label class="lobby-section-label">2. Chọn Nhân Vật Chibi Của Bạn (Người Chơi 1)</label>
+              <div id="lobby-char-grid" class="lobby-char-grid"></div>
+            </div>
+
+            <div class="lobby-footer-actions">
+              <button type="button" id="btn-start-match-now" class="action-btn action-btn-buy" style="width:100%;padding:13px 20px;font-size:15px">
+                🚀 BẮT ĐẦU VÁN ĐẤU TRÊN ĐẢO NỔI 3D
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- =========================================================
+           PROPERTY TRADING MODAL (#trade-modal)
+           ========================================================= -->
+      <div id="trade-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="trade-modal-title">
+        <div class="modal-box lobby-modal-box">
+          <div class="modal-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font-size:20px">🤝</span>
+              <h3 id="trade-modal-title" style="font-family:var(--font-display);font-size:17px;color:#fde047">
+                THƯƠNG LƯỢNG MUA & ĐỔI ĐẤT ĐÔ THỊ
+              </h3>
+            </div>
+            <button id="btn-close-trade-modal" class="tile-popup-close" style="color:#f8fafc;background:rgba(255,255,255,0.12)" title="Đóng">✕</button>
+          </div>
+          <div id="trade-modal-body" class="lobby-modal-body"></div>
+        </div>
       </div>
     </div>
 

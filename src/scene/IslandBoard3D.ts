@@ -616,6 +616,15 @@ export class IslandBoard3D {
     this.initJailSkyEndPortal();
     this.pickerHighlightGroup.name = 'Direct3DTilePickerRings';
     this.root.add(this.pickerHighlightGroup);
+
+    // Wait for web fonts ("Be Vietnam Pro", "Chakra Petch") so canvas tile textures render crisp glyphs
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      document.fonts.ready.then(() => {
+        for (const tile of BOARD_TILES) {
+          this.refreshSingleTileVisual(tile.index, null, 1);
+        }
+      });
+    }
   }
 
   private buildRichPastelOceanAndBoats(): void {
@@ -1911,6 +1920,12 @@ export class IslandBoard3D {
 
     const prev = this.buildingGroups.get(tileIndex);
     if (prev && tileContainer) {
+      prev.traverse((child) => {
+        const idx = this.crownMeshes.indexOf(child as THREE.Mesh);
+        if (idx !== -1) {
+          this.crownMeshes.splice(idx, 1);
+        }
+      });
       tileContainer.remove(prev);
       this.disposeObject3D(prev);
       this.buildingGroups.delete(tileIndex);

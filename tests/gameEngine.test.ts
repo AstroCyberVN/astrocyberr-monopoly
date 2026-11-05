@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { BOARD_TILES, BOARD_SIZE, CHARACTER_CONFIGS } from '../src/core/boardData';
+import { BOARD_TILES, BOARD_SIZE, CHARACTER_CONFIGS, getTileAnalytics } from '../src/core/boardData';
 import { GameEngine } from '../src/core/gameEngine';
 import { chooseBotAction } from '../src/core/botAI';
+import { escapeHtml, sanitizeColorHex, validateRulesConfig } from '../src/utils/security';
+import { gameEventBus } from '../src/core/EventBus';
 
 describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reason Confirmation & Direct Bankruptcy', () => {
   it('defines exactly 40 perimeter tiles based on real Monopoly structure with outward-facing rotation angles', () => {
@@ -359,5 +361,107 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(rollEscape.escaped).toBe(true);
     expect(rollEscape.total).toBe(8);
     expect(p0.inJail).toBe(false);
+  });
+
+  it('implements v5.0 Full Architectural Rebirth: Primary Character Selection, Steve Discount Consistency, Creeper +15% Buyout Surcharge, Enderman Teleport/Jail Passive, Festival 3-Round TTL, P2P Trading & Security Utils', () => {
+    // 1. Primary Human Character Selection places chosen character at p1
+    const engine = new GameEngine('SOLO_VS_AI', 1);
+    engine.initGame('SOLO_VS_AI', 1, 1500, 'enderman');
+    const [p1, p2, p3, p4] = engine.getPlayers();
+    expect(p1.characterId).toBe('enderman');
+    expect(new Set([p1.characterId, p2.characterId, p3.characterId, p4.characterId]).size).toBe(4);
+
+    // 2. Enderman Passive (+$50) triggers on #30 End Portal -> Jail, Jail Escape, and Chest Card movement
+    p1.position = 30;
+    const beforeArrest = p1.gold;
+    engine.resolveTileLanding(p1.id);
+    expect(p1.inJail).toBe(true);
+    expect(p1.gold).toBe(beforeArrest + 50);
+
+    const beforeEscape = p1.gold;
+    engine.payJailFine(p1.id, 50);
+    expect(p1.inJail).toBe(false);
+    // Paid $50 bail, gained +$50 Enderman passive -> net 0!
+    expect(p1.gold).toBe(beforeEscape);
+
+    p1.position = 7;
+    const beforeChestTeleport = p1.gold;
+    engine.resolveTileLanding(p1.id, { forcedCardId: 'ch_forward_3' });
+    expect(p1.position).toBe(10);
+    expect(p1.gold).toBe(beforeChestTeleport + 50);
+
+    // 3. Steve -15% upgrade discount consistency in getMortgageValue & getLiquidationValue
+    const stevePlayer = engine.getPlayers().find((p) => p.characterId === 'steve')!;
+    stevePlayer.gold = 3000;
+    engine.buyProperty(stevePlayer.id, 1); // Price $60, UpgradeCost $50 -> Steve pays $43
+    engine.buyProperty(stevePlayer.id, 3);
+    engine.upgradeProperty(stevePlayer.id, 1); // Level 2: invested $60 + $43 = $103
+    expect(engine.getMortgageValue(1)).toBe(Math.round(103 * 0.5));
+    expect(engine.getLiquidationValue(1)).toBe(Math.round(103 * 0.75));
+
+    // 4. Creeper +15% TNT Hazard Surcharge on Hostile Buyout
+    const creeperPlayer = engine.getPlayers().find((p) => p.characterId === 'creeper')!;
+    creeperPlayer.gold = 2000;
+    engine.buyProperty(creeperPlayer.id, 6); // Price $100
+    const creeperBuyoutCost = engine.getBuyoutCost(6);
+    // Base buyout = $100 * 1.6 = $160; Creeper +15% surcharge = Math.round(160 * 1.15) = $184
+    expect(creeperBuyoutCost).toBe(Math.round(100 * 1.6 * 1.15));
+
+    // 5. Festival 3-Round TTL ticks down in nextTurn() and resets multiplier
+    engine.applyFestivalBoost(stevePlayer.id, 1);
+    expect(engine.getTileState(1).festivalMultiplier).toBe(2);
+    expect(engine.getTileState(1).festivalTurnsLeft).toBe(3);
+
+    // Advance 3 full rounds (4 players * 3 rounds = 12 nextTurn calls)
+    for (let i = 0; i < 12; i++) {
+      engine.nextTurn();
+    }
+    expect(engine.getTileState(1).festivalTurnsLeft).toBe(0);
+    expect(engine.getTileState(1).festivalMultiplier).toBe(1);
+
+    // 6. Player-to-Player / Player-to-Bot Property Trading & Net Worth calculation
+    const netWorthBefore = engine.calculatePlayerNetWorth(creeperPlayer.id);
+    expect(netWorthBefore).toBeGreaterThan(creeperPlayer.gold);
+
+    const tradeEvents: string[] = [];
+    const unsub = gameEventBus.on('PROPERTY_TRADED', (ev) => {
+      tradeEvents.push(`${ev.proposerId}->${ev.targetOwnerId}@${ev.tileIndex}`);
+    });
+    const tradeRes = engine.proposePropertyTrade(stevePlayer.id, 6, 130); // Offer $130 for $100 Tile #6 (>= 1.15x threshold for Bot)
+    unsub();
+    expect(tradeRes.ok).toBe(true);
+    expect(tradeRes.accepted).toBe(true);
+    expect(engine.getTileState(6).ownerId).toBe(stevePlayer.id);
+    expect(tradeEvents.length).toBe(1);
+
+    // 7. Security & Analytics helpers
+    expect(escapeHtml('<script>alert("xss")</script>')).toBe('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+    expect(sanitizeColorHex('#10b981')).toBe('#10b981');
+    expect(sanitizeColorHex('javascript:alert(1)', '#000000')).toBe('#000000');
+    const validatedRules = validateRulesConfig(
+      { startingGold: 999999, hostileBuyoutMultiplierPct: 10 },
+      {
+        startingGold: 1500,
+        passStartReward: 200,
+        jailFineAmount: 50,
+        mortgageRatePct: 50,
+        unmortgageRatePct: 55,
+        liquidationRatePct: 75,
+        monopolyBonusPct: 150,
+        hostileBuyoutMultiplierPct: 160,
+        netherWarpGoldBonus: 120,
+        festivalNoPropertyGoldBonus: 80,
+        steveUpgradeDiscountPct: 15,
+        alexStartBonus: 40,
+        creeperTaxDiscountPct: 20,
+        endermanPortalBonus: 50
+      }
+    );
+    expect(validatedRules.startingGold).toBe(50000); // Clamped max
+    expect(validatedRules.hostileBuyoutMultiplierPct).toBe(100); // Clamped min
+
+    const analytics = getTileAnalytics(39);
+    expect(analytics.markovProbabilityPct).toBeGreaterThan(2);
+    expect(analytics.baseRoiPct).toBeGreaterThan(0);
   });
 });

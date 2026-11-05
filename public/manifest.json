@@ -1,0 +1,11 @@
+{
+  "name": "AstroCyberr Monopoly — Sài Gòn Voxel Cyber-Craft 3D",
+  "short_name": "AstroMonopoly",
+  "description": "Game Cờ Tỷ Phú 3D Voxel 40 Ô Địa Danh Sài Gòn - Việt Nam kết hợp kỹ năng 4 nhân vật Chibi (Steve, Alex, Creeper, Enderman), PixelFX 2-Buffer và Supabase Realtime Multiplayer.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0f172a",
+  "theme_color": "#10b981",
+  "lang": "vi"
+}

@@ -5,132 +5,94 @@ export interface BotDecision {
   type:
     | 'BUY_PROPERTY'
     | 'UPGRADE_PROPERTY'
+    | 'BUYOUT_OPPONENT'
     | 'FESTIVAL_BOOST'
     | 'TELEPORT_TARGET'
     | 'NETHER_WARP'
     | 'SKIP_ACTION';
   tileIndex: number;
-  reason: string;
 }
 
-const SAFETY_CASH_RESERVE = 150;
-
-export function chooseBotAction(engine: GameEngine, botPlayerId: string): BotDecision {
-  const bot = engine.getPlayerById(botPlayerId);
+export function chooseBotAction(engine: GameEngine, botId: string): BotDecision {
+  const bot = engine.getPlayerById(botId);
   const pos = bot.position;
   const cfg = engine.getTileConfig(pos);
   const state = engine.getTileState(pos);
 
-  // 1. Unowned Property, Railroad, or Utility
+  // 1. Buy unowned Property / Railroad / Utility if safe cash buffer remains
   if (
     (cfg.type === 'PROPERTY' || cfg.type === 'RAILROAD' || cfg.type === 'UTILITY') &&
     state.ownerId === null
   ) {
     const price = cfg.price ?? 100;
-    if (bot.gold >= price) {
-      const groupTiles = cfg.colorGroup
-        ? BOARD_TILES.filter((t) => t.colorGroup === cfg.colorGroup)
-        : [];
-      const ownedInGroup = groupTiles.filter(
-        (t) => engine.getTileState(t.index).ownerId === bot.id
-      ).length;
-      const completesColorSet = groupTiles.length > 0 && ownedInGroup === groupTiles.length - 1;
+    const safetyBuffer = 80;
+    if (bot.gold - price >= safetyBuffer) {
+      return { type: 'BUY_PROPERTY', tileIndex: pos };
+    }
+    return { type: 'SKIP_ACTION', tileIndex: pos };
+  }
 
-      if (completesColorSet || bot.gold - price >= SAFETY_CASH_RESERVE) {
-        return {
-          type: 'BUY_PROPERTY',
-          tileIndex: pos,
-          reason: completesColorSet
-            ? 'Hoàn tất bộ màu Monopoly (x1.5 tiền thuê)'
-            : 'Đủ ngân sách an toàn để đầu tư bất động sản'
-        };
+  // 2. Upgrade own property (respecting Steve's -15% discount & Even-Build Rule!)
+  if (cfg.type === 'PROPERTY' && state.ownerId === bot.id && state.level < 4 && !state.mortgaged) {
+    const upCost = engine.getEffectiveUpgradeCost(bot.id, pos);
+    if (engine.canUpgradePropertyEvenly(bot.id, pos) && bot.gold - upCost >= 90) {
+      return { type: 'UPGRADE_PROPERTY', tileIndex: pos };
+    }
+    return { type: 'SKIP_ACTION', tileIndex: pos };
+  }
+
+  // 3. Strategic Hostile Buyout when landing on an opponent's property that completes or advances a color group!
+  if (cfg.type === 'PROPERTY' && state.ownerId !== null && state.ownerId !== bot.id) {
+    const buyoutCost = engine.getBuyoutCost(pos);
+    if (buyoutCost !== null && bot.gold - buyoutCost >= 180) {
+      const ownInGroup = engine.getPlayerColorGroupOwnership(bot.id, cfg.group);
+      if (ownInGroup.ownedCount >= 1) {
+        return { type: 'BUYOUT_OPPONENT', tileIndex: pos };
       }
     }
   }
 
-  // 2. Owned Property -> Upgrade check
-  if (cfg.type === 'PROPERTY' && state.ownerId === bot.id && state.level < 4) {
-    const cost = cfg.upgradeCost ?? 80;
-    if (bot.gold - cost >= SAFETY_CASH_RESERVE) {
-      return {
-        type: 'UPGRADE_PROPERTY',
-        tileIndex: pos,
-        reason: 'Nâng cấp công trình để tăng tiền thuê'
-      };
-    }
-  }
-
-  // 3. Festival Tile -> Boost best owned property
+  // 4. Festival Tile (#20): Either teleport to an unowned tile that completes a Monopoly color group,
+  //    or apply 2x Festival Boost (3 rounds) to the highest-rent owned property!
   if (cfg.type === 'FESTIVAL') {
-    const owned = engine
+    const unownedCompletingSet = BOARD_TILES.filter((t) => {
+      if (t.type !== 'PROPERTY' || engine.getTileState(t.index).ownerId !== null) return false;
+      const own = engine.getPlayerColorGroupOwnership(bot.id, t.group);
+      return own.totalCount > 1 && own.ownedCount === own.totalCount - 1 && bot.gold >= (t.price ?? 150) + 80;
+    });
+
+    if (unownedCompletingSet.length > 0) {
+      return { type: 'TELEPORT_TARGET', tileIndex: unownedCompletingSet[0].index };
+    }
+
+    const ownedTiles = engine
       .getAllTileStates()
       .filter((t) => t.ownerId === bot.id)
       .sort((a, b) => engine.calculateRent(b.index) - engine.calculateRent(a.index));
 
-    if (owned.length > 0) {
-      return {
-        type: 'FESTIVAL_BOOST',
-        tileIndex: owned[0].index,
-        reason: 'Tổ chức Lễ Hội x2 trên ô đất có giá trị cao nhất'
-      };
+    if (ownedTiles.length > 0) {
+      return { type: 'FESTIVAL_BOOST', tileIndex: ownedTiles[0].index };
     }
+    return { type: 'SKIP_ACTION', tileIndex: pos };
   }
 
-  // 4. The End Portal (Tile 30) -> Teleport to set-completing unowned tile or Start (0)
-  if (cfg.type === 'END_PORTAL') {
-    for (const tile of BOARD_TILES) {
-      if (tile.type === 'PROPERTY' && engine.getTileState(tile.index).ownerId === null) {
-        const price = tile.price ?? 100;
-        const siblingOwned = BOARD_TILES.some(
-          (other) =>
-            other.index !== tile.index &&
-            other.colorGroup === tile.colorGroup &&
-            engine.getTileState(other.index).ownerId === bot.id
-        );
-        if (siblingOwned && bot.gold >= price) {
-          return {
-            type: 'TELEPORT_TARGET',
-            tileIndex: tile.index,
-            reason: `Bay tới [${tile.name}] để gom bộ màu!`
-          };
-        }
-      }
-    }
-
-    const affordableUnowned = BOARD_TILES.find(
-      (t) =>
-        (t.type === 'PROPERTY' || t.type === 'RAILROAD' || t.type === 'UTILITY') &&
-        engine.getTileState(t.index).ownerId === null &&
-        bot.gold >= (t.price ?? 100) + SAFETY_CASH_RESERVE
-    );
-
-    if (affordableUnowned) {
-      return {
-        type: 'TELEPORT_TARGET',
-        tileIndex: affordableUnowned.index,
-        reason: `Bay tới mua [${affordableUnowned.name}]`
-      };
-    }
-
-    return {
-      type: 'TELEPORT_TARGET',
-      tileIndex: 0,
-      reason: 'Bay về Ô Khởi Hành để nhận +$200'
-    };
-  }
-
-  // 5. Nether Portal (Tile 33) -> Warp through the Nether Dimension (+120$ Piglin Gold + x8 Overworld steps)
   if (cfg.type === 'NETHER_PORTAL') {
-    return {
-      type: 'NETHER_WARP',
-      tileIndex: pos,
-      reason: 'Bước qua Cổng Nether để nhận +$120 Vàng Piglin và nhảy vọt x8 bước!'
-    };
+    return { type: 'NETHER_WARP', tileIndex: pos };
   }
 
-  return {
-    type: 'SKIP_ACTION',
-    tileIndex: pos,
-    reason: 'Giữ $ dự phòng an toàn'
-  };
+  if (cfg.type === 'END_PORTAL') {
+    const unowned = BOARD_TILES.filter(
+      (t) =>
+        (t.type === 'PROPERTY' || t.type === 'RAILROAD') &&
+        engine.getTileState(t.index).ownerId === null &&
+        (t.price ?? 100) <= bot.gold - 80
+    ).sort((a, b) => (b.price ?? 0) - (a.price ?? 0));
+
+    if (unowned.length > 0) {
+      return { type: 'TELEPORT_TARGET', tileIndex: unowned[0].index };
+    }
+    return { type: 'TELEPORT_TARGET', tileIndex: 0 };
+  }
+
+  return { type: 'SKIP_ACTION', tileIndex: pos };
 }

@@ -36,10 +36,24 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    chunkSizeWarningLimit: 650,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
         admin: resolve(__dirname, 'admin/index.html')
+      },
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three')) {
+            return 'three-vendor';
+          }
+          if (id.includes('node_modules/@supabase')) {
+            return 'supabase-vendor';
+          }
+          if (id.includes('node_modules/gsap') || id.includes('node_modules/canvas-confetti')) {
+            return 'fx-vendor';
+          }
+        }
       }
     }
   }

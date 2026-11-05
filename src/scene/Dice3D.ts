@@ -219,6 +219,19 @@ export class Dice3D {
     while (this.fxGroup.children.length > 0) {
       const child = this.fxGroup.children[0];
       this.fxGroup.remove(child);
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.geometry?.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material?.dispose();
+        }
+      } else if (child instanceof THREE.Sprite) {
+        const mat = child.material as THREE.SpriteMaterial;
+        mat.map?.dispose();
+        mat.dispose();
+      }
     }
   }
 

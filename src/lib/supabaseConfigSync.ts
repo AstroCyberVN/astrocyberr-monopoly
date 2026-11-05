@@ -1,88 +1,153 @@
-import { createClient, RealtimeChannel, SupabaseClient, User } from '@supabase/supabase-js';
-import { RawTileConfigItem, TILES_CONFIG_40 } from '../config/tilesConfig';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
-  BOARD_SIZE,
   BOARD_TILES,
   CHARACTER_CONFIGS,
   CHEST_CARDS,
   CharacterConfig,
   ChestCard,
+  FACTORY_CHARACTER_CONFIGS,
+  FACTORY_CHEST_CARDS,
+  FACTORY_RULES_CONFIG,
+  FACTORY_TILES_40,
   GAME_RULES_CONFIG,
-  MonopolyRulesConfig,
-  getExportableTilesSpecArray,
-  getPerimeterGridCoords40
+  GameRulesConfig,
+  TileConfig,
+  getTileGridCoord40
 } from '../core/boardData';
+import { gameEventBus } from '../core/EventBus';
+import {
+  validateCharacterConfigs,
+  validateChestCards,
+  validateRulesConfig,
+  validateTileConfigArray
+} from '../utils/security';
 
-const viteEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
-const SUPABASE_URL =
-  viteEnv?.VITE_SUPABASE_URL || 'https://ichwmsoceppybdyiycyj.supabase.co';
-const SUPABASE_ANON_KEY =
-  viteEnv?.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaHdtc29jZXBweWJkeWl5Y3lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0MzA1NzMsImV4cCI6MjEwOTAwNjU3M30.XH6KLBDhbGQxkTja77b1RzaZxkdpC2faD5KEp7XtfpE';
+const SUPABASE_URL: string =
+  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL ?? '';
 
-export const ALLOWED_ADMIN_EMAILS: readonly string[] = [
-  'astrocyberr@gmail.com',
-  'tructhuy1910@gmail.com'
-];
+const SUPABASE_ANON_KEY: string =
+  (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? '';
+
+export const isSupabaseConfigured = Boolean(
+  SUPABASE_URL &&
+    SUPABASE_ANON_KEY &&
+    !SUPABASE_URL.includes('your-project-id') &&
+    SUPABASE_ANON_KEY.length > 20
+);
+
+/**
+ * Parses authorized admin emails from `VITE_ADMIN_EMAILS` env variable (if set).
+ * Primary write protection is enforced server-side via Supabase Row-Level Security (RLS).
+ */
+export function getConfiguredAdminEmails(): string[] {
+  const raw =
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_ADMIN_EMAILS ?? '';
+  return raw
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 export function isAuthorizedAdminEmail(email?: string | null): boolean {
   if (!email) return false;
-  return ALLOWED_ADMIN_EMAILS.includes(email.trim().toLowerCase());
+  const normalized = email.trim().toLowerCase();
+  const configured = getConfiguredAdminEmails();
+  // If VITE_ADMIN_EMAILS is configured, enforce client-side allowlist in addition to Supabase RLS;
+  // otherwise allow authenticated Google OAuth users who pass Supabase RLS policies.
+  if (configured.length > 0) {
+    return configured.includes(normalized);
+  }
+  return normalized.includes('@');
 }
 
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true
-  }
-});
+export const supabase: SupabaseClient | null = isSupabaseConfigured
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    })
+  : null;
 
-export interface MonopolyCloudRow {
+export interface MonopolyCloudConfigRow {
   id: string;
-  tiles_json: RawTileConfigItem[];
-  rules_json: MonopolyRulesConfig;
-  characters_json: CharacterConfig[];
-  chest_cards_json: ChestCard[];
+  tiles_config: TileConfig[];
+  rules_config: GameRulesConfig;
+  characters_config: CharacterConfig[];
+  chest_cards_config: ChestCard[];
   updated_at?: string;
   updated_by?: string | null;
 }
 
-export function applyCloudConfigToRuntime(row: Partial<MonopolyCloudRow>): void {
-  // 1. Apply 40 Tiles
-  if (Array.isArray(row.tiles_json) && row.tiles_json.length === BOARD_SIZE) {
-    TILES_CONFIG_40.forEach((base, idx) => {
-      const incoming = row.tiles_json![idx] || base;
+/**
+ * Applies a validated `MonopolyCloudConfigRow` in-place onto the live in-memory arrays/objects
+ * (`BOARD_TILES`, `GAME_RULES_CONFIG`, `CHARACTER_CONFIGS`, `CHEST_CARDS`).
+ */
+export function applyCloudConfigToMemory(row: Partial<MonopolyCloudConfigRow>): void {
+  if (Array.isArray(row.tiles_config) && row.tiles_config.length === BOARD_TILES.length) {
+    const validatedTiles = validateTileConfigArray(row.tiles_config, BOARD_TILES);
+    validatedTiles.forEach((t, idx) => {
+      const coords = getTileGridCoord40(idx);
       BOARD_TILES[idx] = {
-        ...base,
-        ...incoming,
+        ...BOARD_TILES[idx],
+        ...t,
         index: idx,
-        ...getPerimeterGridCoords40(idx)
+        rents: Array.isArray(t.rents) ? [...t.rents] : BOARD_TILES[idx].rents,
+        ...coords
       };
     });
   }
 
-  // 2. Apply Game Rules
-  if (row.rules_json && typeof row.rules_json === 'object') {
-    Object.assign(GAME_RULES_CONFIG, row.rules_json);
+  if (row.rules_config && typeof row.rules_config === 'object') {
+    const validatedRules = validateRulesConfig(row.rules_config, GAME_RULES_CONFIG);
+    Object.assign(GAME_RULES_CONFIG, validatedRules);
   }
 
-  // 3. Apply 4 Chibi Characters
-  if (Array.isArray(row.characters_json) && row.characters_json.length === CHARACTER_CONFIGS.length) {
-    row.characters_json.forEach((incomingChar, idx) => {
+  if (Array.isArray(row.characters_config) && row.characters_config.length > 0) {
+    const validatedChars = validateCharacterConfigs(row.characters_config, CHARACTER_CONFIGS);
+    validatedChars.forEach((c, idx) => {
       if (CHARACTER_CONFIGS[idx]) {
-        Object.assign(CHARACTER_CONFIGS[idx], incomingChar);
+        CHARACTER_CONFIGS[idx] = { ...CHARACTER_CONFIGS[idx], ...c };
       }
     });
   }
 
-  // 4. Apply Chest Cards
-  if (Array.isArray(row.chest_cards_json) && row.chest_cards_json.length > 0) {
-    CHEST_CARDS.splice(0, CHEST_CARDS.length, ...row.chest_cards_json);
+  if (Array.isArray(row.chest_cards_config) && row.chest_cards_config.length > 0) {
+    const validatedCards = validateChestCards(row.chest_cards_config, CHEST_CARDS);
+    CHEST_CARDS.length = 0;
+    validatedCards.forEach((card) => {
+      CHEST_CARDS.push({ ...card });
+    });
   }
 }
 
-export async function fetchAndApplyMonopolyCloudConfig(): Promise<MonopolyCloudRow | null> {
+/**
+ * Restores all 40 tiles, Global Rules, 4 Characters, and 15 Chest Cards back to their
+ * immutable Factory Default values in memory.
+ */
+export function resetMonopolyConfigToFactoryDefault(): void {
+  applyCloudConfigToMemory({
+    tiles_config: FACTORY_TILES_40.map((t) => ({
+      ...t,
+      rents: t.rents ? [...t.rents] : undefined
+    })),
+    rules_config: { ...FACTORY_RULES_CONFIG },
+    characters_config: FACTORY_CHARACTER_CONFIGS.map((c) => ({ ...c })),
+    chest_cards_config: FACTORY_CHEST_CARDS.map((c) => ({ ...c }))
+  });
+  gameEventBus.emit('config:updated', {
+    updatedAt: new Date().toISOString(),
+    source: 'FACTORY_RESET'
+  });
+}
+
+/**
+ * Fetches the active `default` configuration from Supabase (`public.monopoly_config`)
+ * and applies it to the game memory.
+ */
+export async function fetchAndApplyMonopolyCloudConfig(): Promise<MonopolyCloudConfigRow | null> {
+  if (!supabase) return null;
   try {
     const { data, error } = await supabase
       .from('monopoly_config')
@@ -94,90 +159,117 @@ export async function fetchAndApplyMonopolyCloudConfig(): Promise<MonopolyCloudR
       return null;
     }
 
-    const row = data as MonopolyCloudRow;
-    applyCloudConfigToRuntime(row);
+    const row = data as MonopolyCloudConfigRow;
+    applyCloudConfigToMemory(row);
+    gameEventBus.emit('config:updated', {
+      updatedAt: row.updated_at,
+      source: 'CLOUD'
+    });
     return row;
   } catch {
     return null;
   }
 }
 
-const realtimeListeners = new Set<(row: MonopolyCloudRow) => void>();
-let activeRealtimeChannel: RealtimeChannel | null = null;
-
-export function subscribeMonopolyCloudConfigRealtime(
-  onUpdated: (row: MonopolyCloudRow) => void
-): () => void {
-  realtimeListeners.add(onUpdated);
-
-  if (!activeRealtimeChannel) {
-    activeRealtimeChannel = supabase
-      .channel('monopoly_config_live_sync')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'monopoly_config',
-          filter: 'id=eq.default'
-        },
-        (payload) => {
-          if (payload.new && typeof payload.new === 'object') {
-            const row = payload.new as MonopolyCloudRow;
-            applyCloudConfigToRuntime(row);
-            realtimeListeners.forEach((listener) => listener(row));
-          }
-        }
-      )
-      .subscribe();
-  }
-
-  return () => {
-    realtimeListeners.delete(onUpdated);
-    if (realtimeListeners.size === 0 && activeRealtimeChannel) {
-      const ch = activeRealtimeChannel;
-      activeRealtimeChannel = null;
-      supabase.removeChannel(ch);
-    }
-  };
-}
-
-export async function saveMonopolyCloudConfigToSupabase(
-  user?: User | null,
-  payload?: Partial<MonopolyCloudRow>
+/**
+ * Saves the complete configuration (40 Tiles + Global Rules + 4 Characters + 15 Chest Cards)
+ * to Supabase (`public.monopoly_config` row `id = 'default'`).
+ */
+export async function saveMonopolyCloudConfig(
+  updatedByEmail?: string | null
 ): Promise<{ ok: boolean; error?: string; updatedAt?: string }> {
-  let activeUser = user ?? null;
-  if (!activeUser) {
-    const { data } = await supabase.auth.getSession();
-    activeUser = data.session?.user ?? null;
-  }
-
-  if (!activeUser || !isAuthorizedAdminEmail(activeUser.email)) {
+  if (!supabase) {
     return {
       ok: false,
-      error: 'Email của bạn không nằm trong danh sách quản trị viên được phép ghi dữ liệu.'
+      error:
+        'Chưa cấu hình VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY trong file .env. Đã lưu tạm vào bộ nhớ cục bộ.'
     };
   }
 
-  const nowIso = new Date().toISOString();
-  const rowToSave: MonopolyCloudRow = {
-    id: 'default',
-    tiles_json: payload?.tiles_json ?? getExportableTilesSpecArray(),
-    rules_json: payload?.rules_json ?? { ...GAME_RULES_CONFIG },
-    characters_json: payload?.characters_json ?? structuredClone(CHARACTER_CONFIGS),
-    chest_cards_json: payload?.chest_cards_json ?? structuredClone(CHEST_CARDS),
-    updated_at: nowIso,
-    updated_by: activeUser.email ?? null
-  };
+  const cleanTiles = validateTileConfigArray(BOARD_TILES, FACTORY_TILES_40).map((t) => ({
+    index: t.index,
+    name: t.name,
+    type: t.type,
+    group: t.group,
+    colorHex: t.colorHex,
+    icon: t.icon,
+    price: t.price,
+    upgradeCost: t.upgradeCost,
+    rents: t.rents ? [...t.rents] : undefined,
+    rentReason: t.rentReason,
+    description: t.description,
+    gridX: t.gridX,
+    gridZ: t.gridZ,
+    outwardRotationY: t.outwardRotationY
+  }));
 
-  const { error } = await supabase.from('monopoly_config').upsert(rowToSave, {
-    onConflict: 'id'
-  });
+  const cleanRules = validateRulesConfig(GAME_RULES_CONFIG, FACTORY_RULES_CONFIG);
+  const cleanChars = validateCharacterConfigs(CHARACTER_CONFIGS, FACTORY_CHARACTER_CONFIGS);
+  const cleanCards = validateChestCards(CHEST_CARDS, FACTORY_CHEST_CARDS);
+
+  const nowIso = new Date().toISOString();
+
+  const { error } = await supabase.from('monopoly_config').upsert(
+    {
+      id: 'default',
+      tiles_config: cleanTiles,
+      rules_config: cleanRules,
+      characters_config: cleanChars,
+      chest_cards_config: cleanCards,
+      updated_at: nowIso,
+      updated_by: updatedByEmail ?? null
+    },
+    { onConflict: 'id' }
+  );
 
   if (error) {
     return { ok: false, error: error.message };
   }
 
-  applyCloudConfigToRuntime(rowToSave);
+  gameEventBus.emit('config:updated', {
+    updatedAt: nowIso,
+    source: 'ADMIN'
+  });
+
   return { ok: true, updatedAt: nowIso };
+}
+
+/**
+ * Subscribes to real-time updates on `public.monopoly_config` so any changes saved in `/admin`
+ * immediately update all connected 3D boards without reloading!
+ */
+export function subscribeMonopolyCloudConfigRealtime(
+  onUpdate: (row: MonopolyCloudConfigRow) => void
+): () => void {
+  if (!supabase) {
+    return () => {};
+  }
+
+  const channel = supabase
+    .channel('monopoly_config_realtime_sync')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'monopoly_config',
+        filter: 'id=eq.default'
+      },
+      (payload) => {
+        if (payload.new && typeof payload.new === 'object') {
+          const row = payload.new as MonopolyCloudConfigRow;
+          applyCloudConfigToMemory(row);
+          gameEventBus.emit('config:updated', {
+            updatedAt: row.updated_at,
+            source: 'CLOUD'
+          });
+          onUpdate(row);
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
 }

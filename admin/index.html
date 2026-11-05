@@ -1,43 +1,44 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AstroCyberr Monopoly — Admin Console</title>
+    <title>ASTROCYBERR MONOPOLY — Bảng Quản Trị Đám Mây (/admin)</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&family=Chakra+Petch:wght@600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@500;600;700;800;900&family=Chakra+Petch:wght@700;800&display=swap"
       rel="stylesheet"
     />
   </head>
   <body>
-    <div id="admin-root">
-      <!-- STATE 1: AUTH GATE (GOOGLE OAUTH ONLY) -->
+    <div id="admin-app">
+      <!-- STATE 1: GOOGLE OAUTH LOGIN / UNAUTHORIZED SCREEN -->
       <section id="admin-auth-screen" class="admin-auth-screen">
         <div class="admin-auth-card">
-          <div class="admin-auth-badge">🔒 SUPABASE GOOGLE OAUTH • PRIVATE CONSOLE</div>
-          <h1 class="admin-auth-title">ASTROCYBERR MONOPOLY</h1>
+          <div class="admin-auth-badge">🛡️ CỔNG QUẢN TRỊ BẢO MẬT • SUPABASE CLOUD</div>
+          <h1 class="admin-auth-title">ASTROCYBERR ADMIN STUDIO</h1>
           <p class="admin-auth-subtitle">
-            Trang quản trị độc lập (<code>/admin</code>) đồng bộ trực tiếp với cơ sở dữ liệu
-            <strong>Supabase Realtime</strong>. Chỉ dành riêng cho 2 tài khoản quản trị viên được
-            cấp quyền.
+            Hệ thống quản trị toàn diện <strong>40 Ô Cờ Sài Gòn Voxel Cyber-Craft</strong>,
+            <strong>Luật Chơi & Hệ Số Kinh Tế</strong>, <strong>4 Nhân Vật Chibi</strong> và
+            <strong>15 Thẻ Rương (7 Khí Vận + 8 Cơ Hội)</strong>.
           </p>
 
-          <div id="admin-auth-error" class="admin-auth-error hidden" role="alert"></div>
+          <div id="admin-auth-error" class="admin-auth-error hidden"></div>
+
           <div id="admin-auth-loading" class="admin-auth-loading">
-            ⏳ Đang kiểm tra phiên đăng nhập Supabase...
+            ⏳ Đang kiểm tra phiên đăng nhập Google OAuth từ Supabase...
           </div>
 
-          <button id="btn-google-login" class="btn-google-oauth hidden" type="button">
+          <button id="btn-google-login" class="btn-google-oauth hidden">
             <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
               <path
                 fill="#FFC107"
-                d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+                d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
               />
               <path
                 fill="#FF3D00"
-                d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
+                d="m6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C16.318 4 9.656 8.337 6.306 14.691z"
               />
               <path
                 fill="#4CAF50"
@@ -45,315 +46,356 @@
               />
               <path
                 fill="#1976D2"
-                d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
+                d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
               />
             </svg>
-            <span>Đăng nhập bằng Google (Gmail Quản Trị)</span>
+            <span>Đăng nhập bằng Google để mở Bảng Quản Trị</span>
+          </button>
+
+          <button id="btn-auth-signout" class="admin-btn admin-btn-danger hidden" style="margin-top: 12px; width: 100%">
+            🚪 Đăng xuất tài khoản hiện tại & Đổi tài khoản Google khác
           </button>
 
           <div class="admin-whitelist-note">
-            <span>🛡️ Whitelist được bảo vệ bởi PostgreSQL RLS:</span>
-            <code>astrocyberr@gmail.com</code> • <code>tructhuy1910@gmail.com</code>
+            <span>🔒 Bảo mật hai lớp với <strong>Google OAuth 2.0</strong> và <strong>Supabase Row-Level Security (RLS)</strong>.</span>
+            <span>Chỉ tài khoản Quản trị viên được phân quyền mới có thể lưu cấu hình lên đám mây.</span>
+            <a href="/" style="color: #38bdf8; text-decoration: none; font-weight: 800; margin-top: 6px">
+              ⬅️ Quay về bàn cờ 3D chính (/)
+            </a>
           </div>
         </div>
       </section>
 
-      <!-- STATE 2: AUTHORIZED ADMIN DASHBOARD -->
-      <div id="admin-dashboard" class="admin-dashboard hidden">
-        <!-- Top Header Bar -->
+      <!-- STATE 2: FULL ADMIN CONSOLE DASHBOARD -->
+      <main id="admin-dashboard" class="admin-dashboard hidden">
+        <!-- TOPBAR -->
         <header class="admin-topbar">
           <div class="admin-topbar-left">
-            <div class="admin-brand-pill">🛡️ ADMIN CONSOLE</div>
+            <span class="admin-brand-pill">🛠️ ADMIN STUDIO v5.0</span>
             <div>
-              <h1 class="admin-topbar-title">ASTROCYBERR MONOPOLY STUDIO</h1>
+              <h1 class="admin-topbar-title">Quản Trị Toàn Diện AstroCyberr Monopoly</h1>
               <div class="admin-sync-meta">
-                <span id="admin-user-email" class="admin-email-badge">🟢 --</span>
-                <span id="admin-sync-status" class="admin-sync-badge">☁️ Đang tải từ Supabase...</span>
+                <span id="admin-user-email" class="admin-email-badge">🟢 Đã xác thực</span>
+                <span id="admin-last-sync" class="admin-sync-badge">☁️ Đang đồng bộ Supabase...</span>
               </div>
             </div>
           </div>
 
           <div class="admin-topbar-actions">
-            <button id="btn-save-supabase" class="admin-btn admin-btn-primary" type="button">
-              ☁️ Lưu & Đồng Bộ Lên Supabase
+            <a href="/" target="_blank" class="admin-btn admin-btn-secondary" style="text-decoration: none">
+              🎮 Mở Bàn Cờ 3D (Tab mới)
+            </a>
+            <button id="btn-reload-cloud" class="admin-btn admin-btn-secondary">
+              🔄 Tải lại từ Đám Mây
             </button>
-            <button id="btn-export-json" class="admin-btn admin-btn-secondary" type="button">
+            <button id="btn-factory-reset" class="admin-btn admin-btn-warning" title="Khôi phục toàn bộ 40 ô cờ, luật chơi, nhân vật và 15 thẻ rương về mặc định gốc">
+              ♻️ Khôi Phục Mặc Định Gốc
+            </button>
+            <button id="btn-export-json" class="admin-btn admin-btn-secondary">
               📥 Xuất JSON
             </button>
             <label for="input-import-json" class="admin-btn admin-btn-secondary" style="cursor: pointer">
               📤 Nhập JSON
             </label>
-            <input id="input-import-json" type="file" accept=".json,application/json" class="hidden" />
-            <button id="btn-sign-out" class="admin-btn admin-btn-danger" type="button">
-              🚪 Đăng Xuất
+            <input id="input-import-json" type="file" accept=".json" class="hidden" />
+            <button id="btn-save-all-cloud" class="admin-btn admin-btn-primary">
+              ☁️ LƯU LÊN SUPABASE (ĐỒNG BỘ TỨC THÌ)
+            </button>
+            <button id="btn-logout" class="admin-btn admin-btn-danger">
+              🚪 Đăng xuất
             </button>
           </div>
         </header>
 
-        <!-- Navigation Tabs -->
-        <nav class="admin-tabs-nav" aria-label="Các mục cấu hình">
-          <button class="admin-tab-btn active" data-tab="tab-tiles" type="button">
-            🗺️ 1. Cấu Hình 40 Ô Cờ (40 Tiles)
+        <!-- NAVIGATION TABS -->
+        <nav class="admin-tabs-nav" aria-label="Các phân mục quản trị">
+          <button class="admin-tab-btn active" data-tab="tab-tiles">
+            🗺️ 1. Cấu Hình 40 Ô Cờ Sài Gòn Voxel
           </button>
-          <button class="admin-tab-btn" data-tab="tab-rules" type="button">
-            ⚖️ 2. Luật Kinh Tế & Hệ Số Game
+          <button class="admin-tab-btn" data-tab="tab-rules">
+            ⚖️ 2. Luật Chơi & Kinh Tế Vĩ Mô
           </button>
-          <button class="admin-tab-btn" data-tab="tab-chars-cards" type="button">
-            🧑🏽 3. Nhân Vật Chibi (4) & Thẻ Rương (10)
+          <button class="admin-tab-btn" data-tab="tab-characters">
+            🦸 3. Nhân Vật Chibi & 15 Thẻ Rương
           </button>
         </nav>
 
-        <!-- Toast Notification Banner -->
+        <!-- STATUS TOAST BANNER -->
         <div id="admin-toast" class="admin-toast hidden" role="status" aria-live="polite"></div>
 
-        <!-- TAB 1: 40 BOARD TILES EDITOR -->
-        <main id="tab-tiles" class="admin-tab-panel active">
+        <!-- =========================================================
+             TAB 1: 40 BOARD TILES EDITOR (SÀI GÒN VOXEL CYBER-CRAFT)
+             ========================================================= -->
+        <section id="tab-tiles" class="admin-tab-panel active">
           <div class="tiles-workspace">
-            <!-- Left Sidebar: 40 Tiles List & Filter -->
+            <!-- Left Sidebar: Search, Filter & 40 Tiles List -->
             <aside class="tiles-list-sidebar">
               <div class="tiles-filter-bar">
                 <input
                   id="tile-search-input"
-                  type="search"
+                  type="text"
+                  placeholder="🔍 Tìm kiếm theo tên hoặc mã ô (#0 - #39)..."
                   class="admin-input"
-                  placeholder="🔍 Tìm theo tên hoặc #ô (VD: #39, Kim Cương)..."
                 />
                 <select id="tile-type-filter" class="admin-input">
-                  <option value="ALL">Tất cả 40 ô cờ</option>
-                  <option value="PROPERTY">🏠 Ô Đất Mua Được (22 PROPERTY)</option>
-                  <option value="RAILROAD">🚂 Tuyến Đường Sắt (4 RAILROAD)</option>
-                  <option value="UTILITY">⚡ Công Ty Tiện Ích (2 UTILITY)</option>
-                  <option value="CHEST">🧰 Quỹ Cộng Đồng & Cơ Hội (6 CHEST)</option>
-                  <option value="ROYAL_TAX">🏛️ Ô Thuế (2 ROYAL_TAX)</option>
-                  <option value="START">🚩 Ô Khởi Hành (#0 START)</option>
-                  <option value="DESERTED_ISLAND">🏝️ Đảo Cách Ly (#10 DESERTED_ISLAND)</option>
-                  <option value="FESTIVAL">🎉 Lễ Hội Free Parking (#20 FESTIVAL)</option>
-                  <option value="END_PORTAL">🌌 Cổng The End (#30 END_PORTAL)</option>
+                  <option value="ALL">Tất cả 40 ô trên bàn cờ</option>
+                  <option value="PROPERTY">🏠 Ô Đất Xây Dựng (22 Ô Địa Danh)</option>
+                  <option value="RAILROAD">🚂 Nhà Ga & Bến Cảng (4 Ô)</option>
+                  <option value="UTILITY">⚡ Công Ty Điện / Nước (2 Ô)</option>
+                  <option value="CHEST">🎁 Khí Vận & Cơ Hội (6 Ô)</option>
+                  <option value="ROYAL_TAX">👑 Ô Thuế Thành Phố (2 Ô)</option>
+                  <option value="NETHER_PORTAL">🟣 Cổng Dịch Chuyển Nether</option>
+                  <option value="SPECIAL">🌟 Ô Góc Đặc Biệt (#0, #10, #20, #30)</option>
                 </select>
               </div>
               <div id="tiles-grid-list" class="tiles-grid-list"></div>
             </aside>
 
-            <!-- Right Detail Form: Selected Tile Editor -->
-            <section class="tile-detail-editor">
+            <!-- Right Detail Form: Full Inspector for Selected Tile -->
+            <div class="tile-detail-editor">
               <div class="tile-editor-header">
                 <div>
-                  <span id="editor-tile-badge" class="editor-tile-badge">#0 • START</span>
-                  <h2 id="editor-tile-heading">🚩 Đại Lộ Khởi Hành</h2>
+                  <span id="editor-tile-badge" class="editor-tile-badge">Ô #0</span>
+                  <h2 id="editor-tile-heading">Bến Nhà Rồng (Xuất Phát)</h2>
                 </div>
                 <div class="tile-editor-quick-btns">
-                  <button id="btn-prev-tile" class="admin-btn admin-btn-secondary" type="button">
-                    ◀ Ô Trước
-                  </button>
-                  <button id="btn-next-tile" class="admin-btn admin-btn-secondary" type="button">
-                    Ô Tiếp ▶
-                  </button>
+                  <button id="btn-prev-tile" class="admin-btn admin-btn-secondary">⬅️ Ô trước</button>
+                  <button id="btn-next-tile" class="admin-btn admin-btn-secondary">Ô kế ➡️</button>
                 </div>
               </div>
 
               <div class="admin-form-grid">
                 <div class="admin-field">
-                  <label for="field-tile-name">Tên Ô Đất / Sự Kiện</label>
+                  <label for="field-tile-name">Tên hiển thị trên ô cờ 3D & Popup</label>
                   <input id="field-tile-name" type="text" class="admin-input" />
                 </div>
 
                 <div class="admin-field">
-                  <label for="field-tile-icon">Biểu Tượng (Emoji)</label>
+                  <label for="field-tile-icon">Biểu tượng (Emoji 3D)</label>
                   <input id="field-tile-icon" type="text" class="admin-input" />
                 </div>
 
                 <div class="admin-field">
-                  <label for="field-tile-type">Loại Ô (`type`)</label>
+                  <label for="field-tile-type">Phân loại chức năng ô cờ</label>
                   <select id="field-tile-type" class="admin-input">
-                    <option value="PROPERTY">PROPERTY (Ô Đất Mua & Xây Nhà)</option>
-                    <option value="RAILROAD">RAILROAD (Tuyến Đường Sắt)</option>
-                    <option value="UTILITY">UTILITY (Công Ty Điện / Thủy Cục)</option>
-                    <option value="CHEST">CHEST (Quỹ Cộng Đồng / Cơ Hội)</option>
-                    <option value="ROYAL_TAX">ROYAL_TAX (Thuế Thu Nhập / Xa Xỉ)</option>
-                    <option value="START">START (Ô Khởi Hành GO)</option>
-                    <option value="DESERTED_ISLAND">DESERTED_ISLAND (Đảo Cách Ly / Trại Giam)</option>
-                    <option value="FESTIVAL">FESTIVAL (Lễ Hội Free Parking)</option>
-                    <option value="END_PORTAL">END_PORTAL (Cổng Dịch Chuyển The End)</option>
-                    <option value="NETHER_PORTAL">NETHER_PORTAL (Cổng Địa Ngục)</option>
+                    <option value="START">🚩 Ô Xuất Phát (+$200 khi đi qua)</option>
+                    <option value="PROPERTY">🏠 Đất Đô Thị (Xây nhà 4 cấp)</option>
+                    <option value="RAILROAD">🚂 Bến Xe / Nhà Ga (Nhân theo số Ga sở hữu)</option>
+                    <option value="UTILITY">⚡ Công Ty Điện / Nước (Nhân theo điểm xúc xắc)</option>
+                    <option value="CHEST">🎁 Ô Rương Khí Vận / Cơ Hội</option>
+                    <option value="ROYAL_TAX">👑 Ô Thuế Kho Bạc Thành Phố</option>
+                    <option value="DESERTED_ISLAND">🚓 Ô Nhà Tù Chí Hòa / Thăm Tù (#10)</option>
+                    <option value="FESTIVAL">🎉 Ô Lễ Hội Nhân Đôi & Cổng Dịch Chuyển (#20)</option>
+                    <option value="END_PORTAL">🌌 Cổng The End — Bị Hút Vào Tù (#30)</option>
+                    <option value="NETHER_PORTAL">🟣 Cổng Dịch Chuyển Nether</option>
                   </select>
                 </div>
 
                 <div class="admin-field">
-                  <label for="field-tile-group">Cụm Màu Độc Quyền (`colorGroup`)</label>
+                  <label for="field-tile-group">Cụm Màu Độc Quyền (Sài Gòn Voxel Cyber-Craft)</label>
                   <select id="field-tile-group" class="admin-input">
-                    <option value="">-- Không thuộc cụm đất --</option>
-                    <option value="PLAINS">PLAINS (Đồng Bằng Cỏ Xanh)</option>
-                    <option value="OAK_FOREST">OAK_FOREST (Rừng Gỗ Sồi)</option>
-                    <option value="SWAMP">SWAMP (Đầm Lầy Đá Cuội)</option>
-                    <option value="DESERT">DESERT (Sa Mạc Cát Vàng)</option>
-                    <option value="SNOWY_PEAKS">SNOWY_PEAKS (Đỉnh Tuyết Trắng)</option>
-                    <option value="CHERRY_GROVE">CHERRY_GROVE (Thung Lũng Anh Đào)</option>
-                    <option value="NETHER">NETHER (Pháo Đài Nether)</option>
-                    <option value="END_CITY">END_CITY (Thành Phố The End)</option>
+                    <option value="PLAINS">PLAINS — Cụm Nâu (Phú Lâm - Nhà Bè)</option>
+                    <option value="OAK_FOREST">OAK_FOREST — Cụm Xanh Lam (Khánh Hội - Bà Chiểu - Thị Nghè)</option>
+                    <option value="SWAMP">SWAMP — Cụm Hồng (Tân Định - Bến Thành - Hòa Hưng)</option>
+                    <option value="DESERT">DESERT — Cụm Cam (Gia Định - Chợ Lớn - Phú Nhuận)</option>
+                    <option value="SNOWY_PEAKS">SNOWY_PEAKS — Cụm Đỏ (Thủ Đức - Tân Bình - Gò Vấp)</option>
+                    <option value="CHERRY_GROVE">CHERRY_GROVE — Cụm Vàng (Vũng Tàu - Đà Lạt - Nha Trang)</option>
+                    <option value="NETHER">NETHER — Cụm Xanh Lá (Lê Lợi - Nguyễn Huệ - Đồng Khởi)</option>
+                    <option value="END_CITY">END_CITY — Cụm Tím Đậm (Tân Sơn Nhất - Dinh Độc Lập)</option>
+                    <option value="RAILROAD">RAILROAD — Cụm 4 Nhà Ga & Bến Cảng</option>
+                    <option value="UTILITY">UTILITY — Cụm 2 Công Ty Điện & Thủy Cục</option>
+                    <option value="SPECIAL">SPECIAL — Ô Sự Kiện Đặc Biệt</option>
                   </select>
                 </div>
 
                 <div class="admin-field">
-                  <label for="field-tile-color">Mã Màu Hiển Thị (`colorHex`)</label>
+                  <label for="field-tile-color">Màu sắc dải viền 3D (Mã màu Hex)</label>
                   <div class="color-picker-row">
-                    <input id="field-tile-color-picker" type="color" class="color-swatch-input" value="#10b981" />
-                    <input id="field-tile-color" type="text" class="admin-input" placeholder="#10b981" />
+                    <input id="field-tile-color-picker" type="color" class="admin-color-picker" />
+                    <input id="field-tile-color" type="text" class="admin-input" />
                   </div>
                 </div>
 
                 <div class="admin-field">
-                  <label for="field-tile-price">Giá Mua Đất / Tiền Thuế ($)</label>
-                  <input id="field-tile-price" type="number" class="admin-input" min="0" step="10" />
+                  <label for="field-tile-price">Giá mua đất / Mức nộp Thuế ($)</label>
+                  <input id="field-tile-price" type="number" min="0" step="10" class="admin-input" />
                 </div>
 
                 <div class="admin-field">
-                  <label for="field-tile-upgrade">Chi Phí Nâng Cấp Nhà ($)</label>
-                  <input id="field-tile-upgrade" type="number" class="admin-input" min="0" step="10" />
+                  <label for="field-tile-upgrade">Chi phí nâng cấp mỗi cấp nhà ($)</label>
+                  <input id="field-tile-upgrade" type="number" min="0" step="10" class="admin-input" />
                 </div>
-              </div>
 
-              <div class="rents-box" id="tile-rents-section">
-                <h3>🏠 Bảng Giá Thuê 4 Cấp Công Trình ($)</h3>
-                <div class="rents-4col-grid">
-                  <div class="admin-field">
-                    <label for="field-rent-0">Cấp 1: Cọc Rào Gỗ ($)</label>
-                    <input id="field-rent-0" type="number" class="admin-input" min="0" step="5" />
-                  </div>
-                  <div class="admin-field">
-                    <label for="field-rent-1">Cấp 2: Nhà Gỗ ($)</label>
-                    <input id="field-rent-1" type="number" class="admin-input" min="0" step="5" />
-                  </div>
-                  <div class="admin-field">
-                    <label for="field-rent-2">Cấp 3: Biệt Thự 2 Tầng ($)</label>
-                    <input id="field-rent-2" type="number" class="admin-input" min="0" step="5" />
-                  </div>
-                  <div class="admin-field">
-                    <label for="field-rent-3">Cấp 4: Lâu Đài Vương Miện ($)</label>
-                    <input id="field-rent-3" type="number" class="admin-input" min="0" step="5" />
-                  </div>
+                <div class="admin-field">
+                  <label for="field-tile-rents">
+                    Bảng giá thuê các cấp (ngăn cách bằng dấu phẩy, VD: <code>20, 45, 110, 240</code>)
+                  </label>
+                  <input
+                    id="field-tile-rents"
+                    type="text"
+                    placeholder="20, 45, 110, 240"
+                    class="admin-input"
+                  />
                 </div>
               </div>
 
               <div class="admin-field" style="margin-top: 14px">
-                <label for="field-tile-reason">Lý Do Thu Phí Khi Đi Vào (`rentReason`)</label>
+                <label for="field-tile-reason">
+                  Lý do thu phí khi đối thủ dẫm vào ô đất (hiển thị trong Hóa Đơn Thu Phí)
+                </label>
                 <input
                   id="field-tile-reason"
                   type="text"
+                  placeholder="Ví dụ: neo đậu thương thuyền và sử dụng kho bãi..."
                   class="admin-input"
-                  placeholder="VD: tham quan khu sinh thái rừng sồi và nghỉ chân tại trạm gỗ..."
                 />
               </div>
 
               <div class="admin-field" style="margin-top: 14px">
-                <label for="field-tile-desc">Mô Tả Chi Tiết Ô Cờ (`description`)</label>
+                <label for="field-tile-desc">Mô tả chi tiết địa danh (hiển thị ở Popup Góc Trái Dưới)</label>
                 <textarea id="field-tile-desc" rows="3" class="admin-input"></textarea>
               </div>
 
               <div class="tile-editor-footer">
-                <button id="btn-apply-tile-and-sync" class="admin-btn admin-btn-primary" type="button">
-                  💾 Áp Dụng Ô Này & Đồng Bộ Lên Supabase
+                <button id="btn-apply-tile" class="admin-btn admin-btn-primary">
+                  ✅ Áp Dụng Thay Đổi Cho Ô Này & Lưu Đám Mây
+                </button>
+                <span class="tile-editor-hint">
+                  💡 Mọi thay đổi được kiểm tra an toàn dữ liệu và phát sóng trực tiếp tới bàn cờ 3D qua Supabase Realtime!
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             TAB 2: GLOBAL GAME RULES & ECONOMIC MULTIPLIERS
+             ========================================================= -->
+        <section id="tab-rules" class="admin-tab-panel">
+          <div class="rules-panel-card">
+            <div class="rules-panel-header">
+              <div>
+                <h2>⚖️ Cấu Hình Luật Chơi & Hệ Số Kinh Tế Vĩ Mô</h2>
+                <p>
+                  Điều chỉnh dòng tiền khởi đầu, thưởng qua Bến Nhà Rồng (#0), lãi suất thế chấp,
+                  hệ số độc quyền cụm màu và nội tại của 4 nhân vật Chibi.
+                </p>
+              </div>
+              <button id="btn-save-rules" class="admin-btn admin-btn-primary">
+                ☁️ Lưu Luật Chơi Lên Supabase
+              </button>
+            </div>
+
+            <div class="admin-form-grid rules-grid">
+              <div class="admin-field">
+                <label for="rule-starting-gold">💰 Vốn Khởi Đầu Mỗi Tỷ Phú ($)</label>
+                <input id="rule-starting-gold" type="number" step="50" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-pass-start">🚩 Tiền Thưởng Qua Ô Xuất Phát #0 ($)</label>
+                <input id="rule-pass-start" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-jail-fine">🚓 Tiền Bảo Lãnh Thoát Tù Chí Hòa #10 ($)</label>
+                <input id="rule-jail-fine" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-mortgage-pct">🏦 Tỷ Lệ Thế Chấp Ngân Hàng (%)</label>
+                <input id="rule-mortgage-pct" type="number" step="5" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-unmortgage-pct">🔓 Tỷ Lệ Chuộc Lại Đất Thế Chấp (%)</label>
+                <input id="rule-unmortgage-pct" type="number" step="5" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-liquidation-pct">🚨 Tỷ Lệ Thanh Lý Khẩn Cấp Cứu Phá Sản (%)</label>
+                <input id="rule-liquidation-pct" type="number" step="5" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-monopoly-pct">👑 Hệ Số Tiền Thuê Khi Độc Quyền Đủ Bộ Màu (%)</label>
+                <input id="rule-monopoly-pct" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-buyout-pct">⚔️ Hệ Số Mua Đứt Đất Đối Thủ — Hostile Buyout (%)</label>
+                <input id="rule-buyout-pct" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-nether-bonus">🟣 Thưởng Vàng Khi Bước Vào Cổng Nether ($)</label>
+                <input id="rule-nether-bonus" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-festival-bonus">🎉 Trợ Cấp Lễ Hội #20 Khi Chưa Có Đất ($)</label>
+                <input id="rule-festival-bonus" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-steve-discount">⛏️ Nội Tại Steve: Giảm Phí Nâng Cấp Công Trình (%)</label>
+                <input id="rule-steve-discount" type="number" step="1" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-alex-bonus">🏹 Nội Tại Alex: Cộng Thêm Khi Qua Ô #0 ($)</label>
+                <input id="rule-alex-bonus" type="number" step="10" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-creeper-discount">🧨 Nội Tại Creeper: Giảm Thuế Tại Ô #4 & #38 (%)</label>
+                <input id="rule-creeper-discount" type="number" step="5" class="admin-input" />
+              </div>
+
+              <div class="admin-field">
+                <label for="rule-enderman-bonus">🔮 Nội Tại Enderman: Thưởng Tinh Thể Mỗi Lần Dịch Chuyển ($)</label>
+                <input id="rule-enderman-bonus" type="number" step="10" class="admin-input" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =========================================================
+             TAB 3: 4 CHARACTERS & ALL 15 CHEST CARDS (7 KHÍ VẬN + 8 CƠ HỘI)
+             ========================================================= -->
+        <section id="tab-characters" class="admin-tab-panel">
+          <div class="chars-and-cards-layout">
+            <!-- 4 Characters -->
+            <div class="rules-panel-card">
+              <div class="rules-panel-header">
+                <div>
+                  <h2>🦸 Cấu Hình 4 Nhân Vật Chibi (Steve, Alex, Creeper, Enderman)</h2>
+                  <p>Chỉnh sửa tên hiển thị, danh hiệu, màu sắc chủ đạo và mô tả kỹ năng nội tại.</p>
+                </div>
+                <button id="btn-save-chars" class="admin-btn admin-btn-primary">
+                  ☁️ Lưu Nhân Vật & 15 Thẻ Rương
                 </button>
               </div>
-            </section>
-          </div>
-        </main>
-
-        <!-- TAB 2: ECONOMY & GAME RULES -->
-        <main id="tab-rules" class="admin-tab-panel">
-          <div class="rules-container">
-            <div class="section-header-block">
-              <h2>⚖️ Cấu Hình Kinh Tế & Luật Chơi Toàn Cục (`rules_json`)</h2>
-              <p>
-                Mọi thay đổi tại đây sau khi bấm <strong>Lưu & Đồng Bộ Lên Supabase</strong> sẽ tự
-                động áp dụng cho bàn cờ chính mà không cần sửa code.
-              </p>
+              <div id="characters-editor-list" class="characters-editor-grid"></div>
             </div>
 
-            <div class="rules-grid">
-              <div class="rule-card">
-                <label for="rule-initial-gold">💰 Vốn Khởi Đầu Mỗi Người Chơi ($)</label>
-                <input id="rule-initial-gold" type="number" class="admin-input" min="100" step="50" />
-                <small>Số tiền mặc định khi bắt đầu ván mới (Mặc định: $1500).</small>
+            <!-- All 15 Chest Cards (7 Khí Vận + 8 Cơ Hội) -->
+            <div class="rules-panel-card" style="margin-top: 20px">
+              <div class="rules-panel-header">
+                <div>
+                  <h2>🎁 Cấu Hình Đầy Đủ 15 Thẻ Rương (7 Khí Vận + 8 Cơ Hội)</h2>
+                  <p>
+                    Chỉnh sửa toàn bộ thuộc tính của 15 thẻ sự kiện: Bộ thẻ (Khí Vận / Cơ Hội), tiêu đề,
+                    mô tả, thưởng/phạt tiền mặt, bay tới ô chỉ định, tiến/lùi bước, thu tiền mỗi người chơi,
+                    lệnh vào tù hoặc trao Thẻ Ra Tù Miễn Phí.
+                  </p>
+                </div>
               </div>
-
-              <div class="rule-card">
-                <label for="rule-start-bonus">🚩 Thưởng Đi Qua Ô Khởi Hành #0 ($)</label>
-                <input id="rule-start-bonus" type="number" class="admin-input" min="0" step="10" />
-                <small>Tiền thưởng cơ bản khi hoàn thành 1 vòng bàn cờ (Mặc định: $200).</small>
-              </div>
-
-              <div class="rule-card">
-                <label for="rule-alex-bonus">🏹 Nội Tại Alex: Thưởng Qua Ô Khởi Hành ($)</label>
-                <input id="rule-alex-bonus" type="number" class="admin-input" min="0" step="10" />
-                <small>Tiền thưởng đặc biệt dành riêng cho Alex khi qua Ô #0 (Mặc định: $240).</small>
-              </div>
-
-              <div class="rule-card">
-                <label for="rule-steve-discount">⛏️ Nội Tại Steve: Giảm Giá Nâng Cấp Nhà (%)</label>
-                <input id="rule-steve-discount" type="number" class="admin-input" min="0" max="90" step="1" />
-                <small>Phần trăm giảm chi phí nâng cấp công trình cho Steve (Mặc định: 15%).</small>
-              </div>
-
-              <div class="rule-card">
-                <label for="rule-creeper-discount">🧨 Nội Tại Creeper: Giảm Thuế Hoàng Gia (%)</label>
-                <input id="rule-creeper-discount" type="number" class="admin-input" min="0" max="90" step="1" />
-                <small>Phần trăm giảm thuế tại Ô #38 cho Creeper (Mặc định: 20%).</small>
-              </div>
-
-              <div class="rule-card">
-                <label for="rule-enderman-bonus">🔮 Nội Tại Enderman: Thưởng Dịch Chuyển Cổng ($)</label>
-                <input id="rule-enderman-bonus" type="number" class="admin-input" min="0" step="10" />
-                <small>Tiền thưởng mỗi lần Enderman đi qua Cổng Địa Ngục / The End (Mặc định: $50).</small>
-              </div>
-
-              <div class="rule-card">
-                <label for="rule-liquidation-rate">🏚️ Tỷ Lệ Thanh Lý Đất Cứu Phá Sản (%)</label>
-                <input id="rule-liquidation-rate" type="number" class="admin-input" min="10" max="100" step="5" />
-                <small>Phần trăm giá trị thu về khi bán gấp tài sản để trả nợ (Mặc định: 75%).</small>
-              </div>
-
-              <div class="rule-card">
-                <label for="rule-buyout-mult">⚔️ Hệ Số Mua Đứt Đất Đối Thủ (Hostile Buyout ×)</label>
-                <input id="rule-buyout-mult" type="number" class="admin-input" min="1.1" max="5" step="0.1" />
-                <small>Hệ số nhân tổng vốn đầu tư để cưỡng chế mua lại đất cấp 1–3 (Mặc định: 1.8x).</small>
-              </div>
-            </div>
-
-            <div class="tile-editor-footer" style="margin-top: 20px">
-              <button id="btn-save-rules-supabase" class="admin-btn admin-btn-primary" type="button">
-                ☁️ Lưu Luật Kinh Tế Lên Supabase
-              </button>
+              <div id="chest-cards-editor-list" class="chest-cards-editor-grid"></div>
             </div>
           </div>
-        </main>
-
-        <!-- TAB 3: 4 CHARACTERS & 10 CHEST CARDS -->
-        <main id="tab-chars-cards" class="admin-tab-panel">
-          <div class="chars-cards-container">
-            <section class="chars-section">
-              <div class="section-header-block">
-                <h2>🧑🏽 Cấu Hình 4 Nhân Vật Chibi & Nội Tại (`characters_json`)</h2>
-                <p>Chỉnh sửa tên hiển thị, danh hiệu và mô tả kỹ năng nội tại của 4 nhân vật.</p>
-              </div>
-              <div id="characters-editor-grid" class="characters-editor-grid"></div>
-            </section>
-
-            <section class="cards-section" style="margin-top: 28px">
-              <div class="section-header-block">
-                <h2>🧰 Cấu Hình 10 Thẻ Rương Kho Báu & Khí Vận (`chest_cards_json`)</h2>
-                <p>Chỉnh sửa nội dung, số tiền thưởng/phạt (`goldDelta`) hoặc ô dịch chuyển (`moveToTile`).</p>
-              </div>
-              <div id="chest-cards-editor-grid" class="chest-cards-editor-grid"></div>
-            </section>
-
-            <div class="tile-editor-footer" style="margin-top: 20px">
-              <button id="btn-save-chars-cards-supabase" class="admin-btn admin-btn-primary" type="button">
-                ☁️ Lưu Nhân Vật & Thẻ Rương Lên Supabase
-              </button>
-            </div>
-          </div>
-        </main>
-      </div>
+        </section>
+      </main>
     </div>
 
     <script type="module" src="/src/admin.ts"></script>
