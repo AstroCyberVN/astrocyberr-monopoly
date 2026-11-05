@@ -128,25 +128,25 @@ export const BUILDING_TIER_NAMES: Record<number, { name: string; icon: string }>
 };
 
 export const COLOR_GROUP_LABELS: Record<ColorGroupId, string> = {
-  PLAINS: 'Quận Phố Cổ (Brickstone)',
-  OAK_FOREST: 'Quận Ánh Sáng & Kiến Trúc',
-  SWAMP: 'Quận Giải Trí & Nghệ Thuật',
-  DESERT: 'Quận Khởi Nghiệp & Tài Chính',
-  SNOWY_PEAKS: 'Quận Truyền Thông & Thể Thao',
-  CHERRY_GROVE: 'Quận Nghỉ Dưỡng Bến Cảng',
-  NETHER: 'Quận Ngân Hàng Quốc Tế',
-  END_CITY: 'Đại Lộ Tỷ Phú Thượng Lưu'
+  PLAINS: 'Cụm Nâu (Phú Lâm - Nhà Bè)',
+  OAK_FOREST: 'Cụm Xanh Lam (Khánh Hội - Thị Nghè)',
+  SWAMP: 'Cụm Hồng (Tân Định - Bến Thành)',
+  DESERT: 'Cụm Cam (Gia Định - Chợ Lớn)',
+  SNOWY_PEAKS: 'Cụm Đỏ (Thủ Đức - Gò Vấp)',
+  CHERRY_GROVE: 'Cụm Vàng (Vũng Tàu - Đà Lạt - Nha Trang)',
+  NETHER: 'Cụm Xanh Lá (Lê Lợi - Nguyễn Huệ - Đồng Khởi)',
+  END_CITY: 'Cụm Tím Đậm (Tân Sơn Nhất - Dinh Độc Lập)'
 };
 
 export const COLOR_GROUP_ORDER: { id: ColorGroupId; hex: string; label: string }[] = [
-  { id: 'PLAINS', hex: '#a16207', label: 'Quận Phố Cổ' },
-  { id: 'OAK_FOREST', hex: '#38bdf8', label: 'Quận Ánh Sáng' },
-  { id: 'SWAMP', hex: '#ec4899', label: 'Quận Giải Trí' },
-  { id: 'DESERT', hex: '#f97316', label: 'Quận Khởi Nghiệp' },
-  { id: 'SNOWY_PEAKS', hex: '#ef4444', label: 'Quận Thể Thao' },
-  { id: 'CHERRY_GROVE', hex: '#eab308', label: 'Quận Bến Cảng' },
-  { id: 'NETHER', hex: '#22c55e', label: 'Quận Ngân Hàng' },
-  { id: 'END_CITY', hex: '#6366f1', label: 'Đại Lộ Thượng Lưu' }
+  { id: 'PLAINS', hex: '#92400e', label: 'Cụm Nâu (Phú Lâm - Nhà Bè)' },
+  { id: 'OAK_FOREST', hex: '#38bdf8', label: 'Cụm Xanh Lam (Khánh Hội - Thị Nghè)' },
+  { id: 'SWAMP', hex: '#ec4899', label: 'Cụm Hồng (Tân Định - Bến Thành)' },
+  { id: 'DESERT', hex: '#f97316', label: 'Cụm Cam (Gia Định - Chợ Lớn)' },
+  { id: 'SNOWY_PEAKS', hex: '#ef4444', label: 'Cụm Đỏ (Thủ Đức - Gò Vấp)' },
+  { id: 'CHERRY_GROVE', hex: '#eab308', label: 'Cụm Vàng (Vũng Tàu - Đà Lạt - Nha Trang)' },
+  { id: 'NETHER', hex: '#22c55e', label: 'Cụm Xanh Lá (Lê Lợi - Nguyễn Huệ - Đồng Khởi)' },
+  { id: 'END_CITY', hex: '#6366f1', label: 'Cụm Tím Đậm (Tân Sơn Nhất - Dinh Độc Lập)' }
 ];
 
 export interface TileConfig {
@@ -261,60 +261,109 @@ export function getExportableTilesSpecArray(): RawTileConfigItem[] {
 
 export interface ChestCard {
   id: string;
+  deck?: 'KHI_VAN' | 'CO_HOI';
   title: string;
   description: string;
   goldDelta?: number;
   moveToTile?: number;
+  stepDelta?: number;
+  goToJail?: boolean;
+  grantGetOutOfJailCard?: boolean;
+  collectFromEachPlayer?: number;
 }
 
 export const CHEST_CARDS: ChestCard[] = [
+  // ======================== BỘ THẺ KHÍ VẬN (Ô #2, #17, #33) ========================
   {
-    id: 'diamond_vein',
-    title: '💎 Cổ Tức Tập Đoàn Kim Cương!',
-    description: 'Khoản đầu tư mỏ Kim Cương Đô Thị sinh lời vượt bậc! Nhận +$180.',
-    goldDelta: 180
+    id: 'kv_lottery',
+    deck: 'KHI_VAN',
+    title: '🧧 Trúng Số Kiến Thiết Miền Nam!',
+    description: 'Vé số kiến thiết của bạn trúng giải đặc biệt! Nhận ngay +$200 từ Ngân hàng.',
+    goldDelta: 200
   },
   {
-    id: 'emerald_trade',
-    title: '💚 Thưởng Thương Mại Ngọc Lục Bảo!',
-    description: 'Hợp đồng xuất khẩu nông sản Voxel thành công rực rỡ. Nhận +$120.',
+    id: 'kv_birthday',
+    deck: 'KHI_VAN',
+    title: '🎂 Tiệc Mừng Sinh Nhật!',
+    description: 'Hôm nay là sinh nhật bạn! Thu $25 tiền mừng từ mỗi người chơi khác đang thi đấu.',
+    collectFromEachPlayer: 25
+  },
+  {
+    id: 'kv_tax_refund',
+    deck: 'KHI_VAN',
+    title: '💵 Hoàn Thuế Lợi Tức!',
+    description: 'Kho bạc hoàn trả khoản thuế nộp dư trong năm. Nhận +$120.',
     goldDelta: 120
   },
   {
-    id: 'golden_apple',
-    title: '🍎 Giải Thưởng Ẩm Thực Táo Vàng!',
-    description: 'Chuỗi nhà hàng của bạn đạt danh hiệu 5 sao! Nhận +$150.',
+    id: 'kv_jail_free',
+    deck: 'KHI_VAN',
+    title: '🕊️ Thẻ Ân Xá Ra Tù Miễn Phí!',
+    description: 'Cất giữ thẻ này để sử dụng khi bị giam tại Nhà Tù Chí Hòa (#10) mà không tốn tiền phạt!',
+    grantGetOutOfJailCard: true,
+    goldDelta: 0
+  },
+  {
+    id: 'kv_hospital',
+    deck: 'KHI_VAN',
+    title: '🏥 Chi Phí Chăm Sóc Y Tế!',
+    description: 'Đóng phí kiểm tra sức khỏe định kỳ tại bệnh viện -$60.',
+    goldDelta: -60
+  },
+  {
+    id: 'kv_inheritance',
+    deck: 'KHI_VAN',
+    title: '📜 Thừa Kế Thương Hội Sài Gòn!',
+    description: 'Nhận cổ tức thừa kế từ thương hội gia tộc +$150.',
     goldDelta: 150
   },
+
+  // ======================== BỘ THẺ CƠ HỘI (Ô #7, #22, #36) ========================
   {
-    id: 'creeper_roof',
-    title: '💥 Sự Cố Nổ Trạm Biến Áp Creeper!',
-    description: 'Một chú Creeper đi lạc làm hỏng mặt tiền tòa nhà. Tốn -$70 bảo trì.',
-    goldDelta: -70
-  },
-  {
-    id: 'elytra_start',
-    title: '🪽 Chuyên Cơ Elytra Đưa Về Đại Lộ GO!',
-    description: 'Bay thẳng về Đại Lộ Khởi Hành (#0) và nhận ngay +$200!',
+    id: 'ch_go_start',
+    deck: 'CO_HOI',
+    title: '🚩 Tiến Về Bến Nhà Rồng (Khởi Hành)!',
+    description: 'Đi thẳng về Ô Khởi Hành (#0) và lĩnh ngay +$200 tiền lương!',
     moveToTile: 0,
     goldDelta: 200
   },
   {
-    id: 'totem_undying',
-    title: '🗿 Bảo Hiểm Totem Bất Tử Chi Trả!',
-    description: 'Quỹ bảo hiểm thành phố hoàn trả cho bạn +$140.',
-    goldDelta: 140
+    id: 'ch_forward_3',
+    deck: 'CO_HOI',
+    title: '⏩ Đường Thông Thoáng — Tiến 3 Bước!',
+    description: 'Tuyến đường đại lộ thông thoáng, tiến thêm 3 ô cờ ngay lập tức!',
+    stepDelta: 3,
+    goldDelta: 0
   },
   {
-    id: 'zombie_siege',
-    title: '🧟 Phí An Ninh Vệ Sĩ Iron Golem!',
-    description: 'Thuê đội tuần tra Iron Golem bảo vệ khu phố ban đêm tốn -$60.',
-    goldDelta: -60
+    id: 'ch_back_3',
+    deck: 'CO_HOI',
+    title: '⏪ Kẹt Xe Giờ Cao Điểm — Lùi 3 Bước!',
+    description: 'Giao thông ùn tắc tại ngã tư, lùi lại 3 ô cờ!',
+    stepDelta: -3,
+    goldDelta: 0
   },
   {
-    id: 'netherite_ingot',
-    title: '🔥 Trúng Thầu Khoáng Sản Netherite!',
-    description: 'Bán lô hợp kim Netherite siêu cứng cho Cảng Vũ Trụ thu về +$200!',
-    goldDelta: 200
+    id: 'ch_go_to_jail',
+    deck: 'CO_HOI',
+    title: '🚓 Lệnh Bắt Giam Khẩn Cấp!',
+    description: 'Đi thẳng vào Nhà Tù Chí Hòa (#10)! Không được nhận lương khi qua Khởi Hành.',
+    goToJail: true,
+    goldDelta: 0
+  },
+  {
+    id: 'ch_jail_free',
+    deck: 'CO_HOI',
+    title: '🔑 Giấy Bảo Lãnh Ra Tù Miễn Phí!',
+    description: 'Cất giữ giấy bảo lãnh này để thoát khỏi Nhà Tù Chí Hòa (#10) miễn phí bất cứ lúc nào!',
+    grantGetOutOfJailCard: true,
+    goldDelta: 0
+  },
+  {
+    id: 'ch_speed_fine',
+    deck: 'CO_HOI',
+    title: '🚦 Phạt Vi Phạm Luật Giao Thông!',
+    description: 'Đóng phạt hành chính vượt tốc độ trong nội đô -$50.',
+    goldDelta: -50
   }
 ];

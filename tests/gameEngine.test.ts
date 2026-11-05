@@ -109,15 +109,25 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(p1.gold).toBe(p1Before - festivalRent);
   });
 
-  it('enforces Deserted Island (Tile 10) skip-1-turn and The End Portal (Tile 30) teleportation', () => {
+  it('enforces Vietnamese Monopoly Thăm Tù (Tile 10) vs Đi Thẳng Vào Tù (Tile 30) and programmatic portal teleportation', () => {
     const engine = new GameEngine('SOLO_VS_AI', 1);
     const p0 = engine.getCurrentPlayer();
 
+    // Walking onto #10 is Just Visiting (Thăm Tù) — no turn lost and not inJail!
     p0.position = 10;
-    const islandRes = engine.resolveTileLanding(p0.id);
-    expect(islandRes.action).toBe('SKIP_TURN_SET');
-    expect(p0.skipTurns).toBe(1);
+    const visitRes = engine.resolveTileLanding(p0.id);
+    expect(visitRes.action).toBe('JUST_VISITING_JAIL');
+    expect(p0.inJail).toBe(false);
+    expect(p0.skipTurns).toBe(0);
 
+    // Walking onto #30 sends player directly to #10 Jail (Ở Tù)!
+    p0.position = 30;
+    const arrestRes = engine.resolveTileLanding(p0.id);
+    expect(arrestRes.action).toBe('SENT_TO_JAIL');
+    expect(p0.position).toBe(10);
+    expect(p0.inJail).toBe(true);
+
+    // Programmatic portal helper still works
     p0.position = 30;
     const goldBefore = p0.gold;
     const teleRes = engine.teleportFromEndPortal(p0.id, 3);
@@ -159,7 +169,7 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     const rentPreview = engine.resolveTileLanding(p1.id, { deferRentPayment: true });
     expect(rentPreview.action).toBe('PAID_RENT');
     expect(rentPreview.canAffordRent).toBe(true);
-    expect(rentPreview.rentReason).toContain('Quảng Trường Tháp Đồng Hồ');
+    expect(rentPreview.rentReason).toContain('Thị Nghè');
     // Gold is NOT deducted until executeConfirmedRentPayment is called!
     expect(p1.gold).toBe(p1Before);
 
@@ -259,12 +269,79 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(aucRes.winningBid).toBe(95);
     expect(engine.getTileState(6).ownerId).toBe(p1.id);
 
-    // 6. 3 Consecutive Doubles -> Sent to #10 Jail
+    // 6. 3 Consecutive Doubles -> Sent to #10 Jail (Ở Tù)
     engine.rollDice([2, 2]);
     engine.rollDice([3, 3]);
     const thirdDouble = engine.rollDice([6, 6]);
     expect(thirdDouble.sentToJailByTripleDoubles).toBe(true);
     expect(p0.position).toBe(10);
-    expect(p0.skipTurns).toBe(1);
+    expect(p0.inJail).toBe(true);
+  });
+
+  it('implements Vietnamese Monopoly (Cờ Tỷ Phú Bản Việt Nam) tiles, Khí Vận & Cơ Hội decks, and 3 Jail Escape methods', () => {
+    const engine = new GameEngine('PASS_AND_PLAY', 4);
+    const [p0, p1, p2, p3] = engine.getPlayers();
+
+    // 1. Verify classic Vietnamese landmarks on the 40-tile board
+    expect(engine.getTileConfig(1).name).toBe('Phú Lâm');
+    expect(engine.getTileConfig(3).name).toBe('Nhà Bè');
+    expect(engine.getTileConfig(5).name).toBe('Bến Xe Miền Tây');
+    expect(engine.getTileConfig(13).name).toBe('Bến Thành');
+    expect(engine.getTileConfig(18).name).toBe('Chợ Lớn');
+    expect(engine.getTileConfig(26).name).toBe('Vũng Tàu');
+    expect(engine.getTileConfig(32).name).toBe('Phố Đi Bộ Nguyễn Huệ');
+    expect(engine.getTileConfig(34).name).toBe('Đường Đồng Khởi');
+    expect(engine.getTileConfig(39).name).toContain('Dinh Độc Lập');
+
+    // 2. Test Khí Vận card "Mừng Sinh Nhật" (collect $25 from each of the 3 other players = +$75)
+    p0.position = 2;
+    const p0BeforeBirthday = p0.gold;
+    const p1BeforeBirthday = p1.gold;
+    const birthdayRes = engine.resolveTileLanding(p0.id, { forcedCardId: 'kv_birthday' });
+    expect(birthdayRes.action).toBe('CHEST_DRAWN');
+    expect(p0.gold).toBe(p0BeforeBirthday + 75);
+    expect(p1.gold).toBe(p1BeforeBirthday - 25);
+    expect(p2.gold).toBe(p1BeforeBirthday - 25);
+    expect(p3.gold).toBe(p1BeforeBirthday - 25);
+
+    // 3. Test Cơ Hội card "Tiến Lên 3 Bước" (+3 steps) and "Lùi Lại 3 Bước" (-3 steps)
+    p0.position = 7;
+    engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_forward_3' });
+    expect(p0.position).toBe(10);
+
+    p0.position = 22;
+    engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_back_3' });
+    expect(p0.position).toBe(19);
+
+    // 4. Test "Thẻ Ra Tù Miễn Phí" & "Đi Thẳng Vào Tù" + 3 Jail Escape Methods
+    p0.position = 17;
+    engine.resolveTileLanding(p0.id, { forcedCardId: 'kv_jail_free' });
+    expect(p0.jailFreeCards).toBe(1);
+
+    p0.position = 36;
+    engine.resolveTileLanding(p0.id, { forcedCardId: 'ch_go_to_jail' });
+    expect(p0.position).toBe(10);
+    expect(p0.inJail).toBe(true);
+
+    // Escape Method A: Use Free Jail Card
+    const cardEscape = engine.useJailFreeCard(p0.id);
+    expect(cardEscape.ok).toBe(true);
+    expect(p0.inJail).toBe(false);
+    expect(p0.jailFreeCards).toBe(0);
+
+    // Escape Method B: Pay $50 Bail
+    engine.sendPlayerToJail(p0.id, 'Test nộp phạt');
+    const goldBeforeFine = p0.gold;
+    const fineEscape = engine.payJailFine(p0.id, 50);
+    expect(fineEscape.ok).toBe(true);
+    expect(p0.inJail).toBe(false);
+    expect(p0.gold).toBe(goldBeforeFine - 50);
+
+    // Escape Method C: Roll Doubles in Jail
+    engine.sendPlayerToJail(p0.id, 'Test đổ đôi');
+    const rollEscape = engine.attemptRollDoublesInJail(p0.id, [4, 4]);
+    expect(rollEscape.escaped).toBe(true);
+    expect(rollEscape.total).toBe(8);
+    expect(p0.inJail).toBe(false);
   });
 });

@@ -25,6 +25,8 @@ export interface PlayerState {
   gold: number;
   position: number;
   skipTurns: number;
+  inJail?: boolean;
+  jailFreeCards?: number;
   bankrupt: boolean;
 }
 
@@ -45,6 +47,8 @@ export interface TileResolutionResult {
     | 'PAID_RENT'
     | 'CHEST_DRAWN'
     | 'SKIP_TURN_SET'
+    | 'JUST_VISITING_JAIL'
+    | 'SENT_TO_JAIL'
     | 'CHOOSE_FESTIVAL_TILE'
     | 'CHOOSE_PORTAL_TARGET'
     | 'NETHER_PORTAL_READY'
@@ -138,6 +142,8 @@ export class GameEngine {
         gold: initialGold,
         position: 0,
         skipTurns: 0,
+        inJail: false,
+        jailFreeCards: 0,
         bankrupt: false
       };
     });
@@ -209,6 +215,81 @@ export class GameEngine {
     }
   }
 
+  public sendPlayerToJail(playerId: string, reason = 'Vi phạm quy định đô thị'): void {
+    const player = this.getPlayerById(playerId);
+    player.position = 10;
+    player.inJail = true;
+    player.skipTurns = 0;
+    this.consecutiveDoubles = 0;
+    this.addLog(
+      `🚓 VÀO TÙ! ${player.emoji} ${player.name} bị chuyển thẳng vào #10 Nhà Tù Chí Hòa (${reason})!`
+    );
+  }
+
+  public payJailFine(playerId: string, fineAmount = 50): { ok: boolean; reason?: string } {
+    const player = this.getPlayerById(playerId);
+    if (!player.inJail) {
+      return { ok: false, reason: 'Người chơi hiện không ở trong tù.' };
+    }
+    if (player.gold < fineAmount) {
+      return { ok: false, reason: `Không đủ $${fineAmount} để nộp phạt bảo lãnh ra tù.` };
+    }
+    player.gold -= fineAmount;
+    player.inJail = false;
+    player.skipTurns = 0;
+    this.addLog(
+      `💸 BẢO LÃNH RA TÙ! ${player.emoji} ${player.name} nộp phạt -$${fineAmount} và rời Nhà Tù Chí Hòa ngay lập tức!`
+    );
+    return { ok: true };
+  }
+
+  public useJailFreeCard(playerId: string): { ok: boolean; reason?: string } {
+    const player = this.getPlayerById(playerId);
+    if (!player.inJail) {
+      return { ok: false, reason: 'Người chơi hiện không ở trong tù.' };
+    }
+    const cards = player.jailFreeCards ?? 0;
+    if (cards <= 0) {
+      return { ok: false, reason: 'Bạn không có Thẻ Ra Tù Miễn Phí.' };
+    }
+    player.jailFreeCards = cards - 1;
+    player.inJail = false;
+    player.skipTurns = 0;
+    this.addLog(
+      `🕊️ THẺ RA TÙ MIỄN PHÍ! ${player.emoji} ${player.name} xuất trình Thẻ Ân Xá và rời Nhà Tù Chí Hòa miễn phí!`
+    );
+    return { ok: true };
+  }
+
+  public attemptRollDoublesInJail(
+    playerId: string,
+    forced?: [number, number]
+  ): { d1: number; d2: number; total: number; escaped: boolean } {
+    const player = this.getPlayerById(playerId);
+    const d1 = forced ? forced[0] : Math.floor(Math.random() * 6) + 1;
+    const d2 = forced ? forced[1] : Math.floor(Math.random() * 6) + 1;
+    this.lastDice = [d1, d2];
+    const escaped = d1 === d2;
+    this.consecutiveDoubles = 0;
+
+    if (escaped) {
+      player.inJail = false;
+      player.skipTurns = 0;
+      this.addLog(
+        `🎲 ĐỔ ĐÔI THOÁT TÙ! ${player.emoji} ${player.name} tung được cặp đôi (${d1}+${d2} = ${d1 + d2}) và được trả tự do khỏi Nhà Tù Chí Hòa!`
+      );
+    } else {
+      // Served 1 full turn in jail; released for the next round
+      player.inJail = false;
+      player.skipTurns = 0;
+      this.addLog(
+        `🔒 CHƯA ĐỔ ĐÔI! ${player.emoji} ${player.name} tung ${d1}+${d2} (Không phải cặp đôi) — Chấp hành án tại Nhà Tù Chí Hòa lượt này.`
+      );
+    }
+
+    return { d1, d2, total: d1 + d2, escaped };
+  }
+
   public rollDice(forced?: [number, number]): {
     d1: number;
     d2: number;
@@ -225,12 +306,7 @@ export class GameEngine {
     if (isDoubles) {
       this.consecutiveDoubles += 1;
       if (this.consecutiveDoubles >= 3) {
-        this.consecutiveDoubles = 0;
-        p.position = 10;
-        p.skipTurns = 1;
-        this.addLog(
-          `🚓 VƯỢT TỐC ĐỘ! ${p.emoji} ${p.name} đổ đôi 3 lần liên tiếp (${d1}+${d2}) và bị chuyển thẳng vào #10 Đảo Cách Ly (Jail)!`
-        );
+        this.sendPlayerToJail(p.id, `Đổ đôi 3 lần liên tiếp (${d1}+${d2})`);
         return {
           d1,
           d2,
@@ -254,6 +330,7 @@ export class GameEngine {
     const p = this.getCurrentPlayer();
     return (
       !p.bankrupt &&
+      !p.inJail &&
       p.skipTurns === 0 &&
       this.consecutiveDoubles > 0 &&
       this.consecutiveDoubles <= 2
@@ -977,7 +1054,7 @@ export class GameEngine {
 
   public resolveTileLanding(
     playerId: string,
-    options?: { deferRentPayment?: boolean }
+    options?: { deferRentPayment?: boolean; forcedCardId?: string }
   ): TileResolutionResult {
     const player = this.getPlayerById(playerId);
     const tileIndex = player.position;
@@ -990,7 +1067,7 @@ export class GameEngine {
           action: 'START_LANDED',
           tileIndex,
           tileName: cfg.name,
-          message: `${player.name} dừng ngay tại Đại Lộ Khởi Hành! Nhận nguồn năng lượng thịnh vượng.`
+          message: `${player.name} dừng ngay tại ${cfg.name}! Nhận nguồn năng lượng thịnh vượng.`
         };
 
       case 'PROPERTY':
@@ -1100,38 +1177,78 @@ export class GameEngine {
       }
 
       case 'CHEST': {
-        const card = CHEST_CARDS[Math.floor(Math.random() * CHEST_CARDS.length)];
+        const isKhiVanTile = tileIndex === 2 || tileIndex === 17 || tileIndex === 33;
+        const desiredDeck: 'KHI_VAN' | 'CO_HOI' = isKhiVanTile ? 'KHI_VAN' : 'CO_HOI';
+        const deckLabel = desiredDeck === 'KHI_VAN' ? 'Khí Vận' : 'Cơ Hội';
+
+        const forcedCard = options?.forcedCardId
+          ? CHEST_CARDS.find((c) => c.id === options.forcedCardId)
+          : undefined;
+        const deckPool = CHEST_CARDS.filter((c) => c.deck === desiredDeck);
+        const pool = deckPool.length > 0 ? deckPool : CHEST_CARDS;
+        const card = forcedCard ?? pool[Math.floor(Math.random() * pool.length)];
+
         const prevGold = player.gold;
-        if (card.goldDelta) {
+        let effectiveGoldDelta = 0;
+
+        if (card.collectFromEachPlayer && card.collectFromEachPlayer > 0) {
+          for (const other of this.players) {
+            if (other.id === player.id || other.bankrupt) continue;
+            const collected = Math.min(other.gold, card.collectFromEachPlayer);
+            other.gold -= collected;
+            player.gold += collected;
+            effectiveGoldDelta += collected;
+          }
+        } else if (card.goldDelta) {
           player.gold += card.goldDelta;
+          effectiveGoldDelta += card.goldDelta;
         }
-        if (typeof card.moveToTile === 'number') {
-          player.position = card.moveToTile;
+
+        if (card.grantGetOutOfJailCard) {
+          player.jailFreeCards = (player.jailFreeCards ?? 0) + 1;
         }
-        this.addLog(`🧰 ${player.emoji} ${player.name} mở Rương Sự Kiện: ${card.title}`);
+
+        if (card.goToJail) {
+          this.sendPlayerToJail(player.id, `Thẻ ${deckLabel}: ${card.title}`);
+        } else if (typeof card.moveToTile === 'number') {
+          player.position = ((card.moveToTile % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+        } else if (typeof card.stepDelta === 'number' && card.stepDelta !== 0) {
+          const rawPos = player.position + card.stepDelta;
+          if (card.stepDelta > 0 && rawPos >= BOARD_SIZE) {
+            const bonus = this.getStartBonus(player);
+            player.gold += bonus;
+            effectiveGoldDelta += bonus;
+          }
+          player.position = ((rawPos % BOARD_SIZE) + BOARD_SIZE) % BOARD_SIZE;
+        }
+
+        this.addLog(
+          `${desiredDeck === 'KHI_VAN' ? '🧧' : '⚡'} ${player.emoji} ${player.name} rút thẻ [${deckLabel}]: ${card.title}`
+        );
         this.checkBankruptcy(player, null);
         return {
           action: 'CHEST_DRAWN',
           tileIndex,
           tileName: cfg.name,
-          amount: card.goldDelta,
+          amount: effectiveGoldDelta,
           payerPrevGold: prevGold,
           chestCard: card,
-          message: `${card.title} — ${card.description}`
+          message: `[${deckLabel}] ${card.title} — ${card.description}`
         };
       }
 
       case 'DESERTED_ISLAND': {
-        player.skipTurns = 1;
-        this.consecutiveDoubles = 0;
+        // Vietnamese Monopoly Rule (#10): Walking onto #10 is "Thăm Tù" (Just Visiting) — no turn penalty!
+        player.inJail = false;
+        player.skipTurns = 0;
         this.addLog(
-          `🏝️ ${player.emoji} ${player.name} bị giữ tại [${cfg.name}]! Phải nghỉ 1 lượt tiếp theo.`
+          `👀 THĂM TÙ! ${player.emoji} ${player.name} ghé thăm bên ngoài [${cfg.name}] — Hoàn toàn tự do, không mất lượt!`
         );
         return {
-          action: 'SKIP_TURN_SET',
+          action: 'JUST_VISITING_JAIL',
           tileIndex,
           tileName: cfg.name,
-          message: `${player.name} bị tạm giữ tại ${cfg.name} và phải mất 1 lượt kế tiếp!`
+          message: `👀 ${player.name} chỉ đang Ghé Thăm Tù tại [${cfg.name}] — Hoàn toàn tự do và không bị mất lượt!`
         };
       }
 
@@ -1150,11 +1267,13 @@ export class GameEngine {
       }
 
       case 'END_PORTAL': {
+        // Vietnamese Monopoly Rule (#30): "Đi Thẳng Vào Tù" sends player directly to #10 Jail (Ở Tù)
+        this.sendPlayerToJail(player.id, `Bước vào ô #30 [${cfg.name}]`);
         return {
-          action: 'CHOOSE_PORTAL_TARGET',
+          action: 'SENT_TO_JAIL',
           tileIndex,
           tileName: cfg.name,
-          message: `🌌 Cổng Dịch Chuyển The End (12 Khung) đã mở! Hãy chọn bất kỳ ô nào trên 40 ô để bay tới!`
+          message: `🚓 ${player.name} bước vào ô [${cfg.name}] và bị áp giải thẳng về #10 Nhà Tù Chí Hòa (Không được nhận $200 qua Khởi Hành)!`
         };
       }
 

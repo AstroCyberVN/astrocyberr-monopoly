@@ -1015,6 +1015,76 @@ class AstroCyberrMonopolyApp {
     }
   }
 
+  /**
+   * Vietnamese Monopoly Rule (#10 Nhà Tù Chí Hòa):
+   * Prompts a human player who is currently in Jail (`player.inJail === true`) to choose:
+   * 1. Roll Doubles to escape for free (`ROLL_DOUBLES`)
+   * 2. Pay $50 Bail (`PAY_FINE`)
+   * 3. Use a "Thẻ Ra Tù Miễn Phí" (`USE_CARD`)
+   */
+  private promptHumanJailEscapeChoice(
+    playerId: string
+  ): Promise<'ROLL_DOUBLES' | 'PAY_FINE' | 'USE_CARD'> {
+    return new Promise((resolve) => {
+      const modal = document.getElementById('floating-action-modal')!;
+      const inner = document.getElementById('action-card-inner')!;
+      const player = this.engine.getPlayerById(playerId);
+      const canPayFine = player.gold >= 50;
+      const freeCards = player.jailFreeCards ?? 0;
+
+      modal.classList.remove('hidden');
+      inner.innerHTML = `
+        <span class="action-card-badge" style="background:#ef4444;color:#ffffff">
+          🚓 Ô #10 • ĐANG BỊ GIAM TẠI NHÀ TÙ CHÍ HÒA
+        </span>
+        <h3 class="action-card-title">Chọn Cách Thoát Khỏi Nhà Tù Chí Hòa</h3>
+        <p class="action-card-desc">
+          Bạn đang trong trạng thái <strong>Ở Tù</strong> (do vào ô #30, rút thẻ Vào Tù, hoặc đổ đôi 3 lần).<br/>
+          Hãy chọn 1 trong các phương án chuẩn <strong>Cờ Tỷ Phú Bản Việt Nam</strong> dưới đây:
+        </p>
+        <div class="action-btn-group">
+          <button id="jail-btn-roll" class="action-btn action-btn-buy">
+            <span>🎲 Đổ Xúc Xắc Tìm Cặp Đôi (Miễn phí)</span>
+            <kbd class="key-hint">Space</kbd>
+          </button>
+          ${
+            canPayFine
+              ? `<button id="jail-btn-pay" class="action-btn action-btn-upgrade">
+                   <span>💸 Nộp Phạt Bảo Lãnh (-$50) & Đi Ngay</span>
+                   <kbd class="key-hint">B</kbd>
+                 </button>`
+              : ''
+          }
+          ${
+            freeCards > 0
+              ? `<button id="jail-btn-card" class="action-btn action-btn-skip">
+                   <span>🕊️ Dùng Thẻ Ra Tù Miễn Phí (Còn ${freeCards})</span>
+                   <kbd class="key-hint">Esc</kbd>
+                 </button>`
+              : ''
+          }
+        </div>
+      `;
+
+      const finish = (choice: 'ROLL_DOUBLES' | 'PAY_FINE' | 'USE_CARD') => {
+        this.hideActionModal();
+        resolve(choice);
+      };
+
+      const doRoll = () => finish('ROLL_DOUBLES');
+      const doPay = () => finish('PAY_FINE');
+      const doCard = () => finish('USE_CARD');
+
+      this.activeModalPrimaryAction = doRoll;
+      this.activeModalBuyoutAction = canPayFine ? doPay : null;
+      this.activeModalSecondaryAction = freeCards > 0 ? doCard : null;
+
+      document.getElementById('jail-btn-roll')?.addEventListener('click', doRoll);
+      document.getElementById('jail-btn-pay')?.addEventListener('click', doPay);
+      document.getElementById('jail-btn-card')?.addEventListener('click', doCard);
+    });
+  }
+
   private async executeCurrentPlayerTurn(throwPower = 1.0): Promise<void> {
     if (this.isBusy || this.engine.getWinner()) return;
     this.isBusy = true;
@@ -1029,12 +1099,99 @@ class AstroCyberrMonopolyApp {
     const startTileCfg = this.engine.getTileConfig(player.position);
     this.cameraDirector.focusDiceRoll(startStandPos, startTileCfg.outwardRotationY);
 
-    const { d1, d2, total, isDoubles, sentToJailByTripleDoubles } = this.engine.rollDice();
-    await this.dice3D.animateRollAndFuseTotal(d1, d2, throwPower, this.gameSpeedMultiplier);
+    let d1 = 1;
+    let d2 = 1;
+    let total = 2;
+    let isDoubles = false;
+    let sentToJailByTripleDoubles = false;
+    let alreadyRolledViaJailEscape = false;
 
-    document.getElementById('dice-last-result')!.textContent =
-      `🎲 ${d1}+${d2}=${total}${isDoubles ? ' (ĐÔI!)' : ''}`;
-    this.renderHUD();
+    // Vietnamese Monopoly Rule: If player is currently IN JAIL (#10 Nhà Tù Chí Hòa), resolve Jail Escape first!
+    if (player.inJail) {
+      if (player.isBot) {
+        if ((player.jailFreeCards ?? 0) > 0) {
+          this.engine.useJailFreeCard(player.id);
+          this.renderHUD();
+        } else if (player.gold >= 200) {
+          const prevGold = player.gold;
+          this.engine.payJailFine(player.id, 50);
+          soundManager.playPayRent();
+          this.animateSinglePlayerCoinDeltaOnHUD(player.id, prevGold, player.gold);
+        } else {
+          const jailRoll = this.engine.attemptRollDoublesInJail(player.id);
+          await this.dice3D.animateRollAndFuseTotal(
+            jailRoll.d1,
+            jailRoll.d2,
+            throwPower,
+            this.gameSpeedMultiplier
+          );
+          document.getElementById('dice-last-result')!.textContent =
+            `🎲 ${jailRoll.d1}+${jailRoll.d2}=${jailRoll.total}${jailRoll.escaped ? ' (THOÁT TÙ!)' : ' (Ở TÙ)'}`;
+          this.dice3D.clearFusionFX();
+          this.renderHUD();
+
+          if (!jailRoll.escaped) {
+            await this.delay(550 / this.gameSpeedMultiplier);
+            this.advanceToNextTurn();
+            return;
+          }
+          d1 = jailRoll.d1;
+          d2 = jailRoll.d2;
+          total = jailRoll.total;
+          isDoubles = false;
+          alreadyRolledViaJailEscape = true;
+        }
+      } else {
+        const choice = await this.promptHumanJailEscapeChoice(player.id);
+        if (choice === 'USE_CARD') {
+          this.engine.useJailFreeCard(player.id);
+          soundManager.playCoinChime();
+          this.renderHUD();
+        } else if (choice === 'PAY_FINE') {
+          const prevGold = player.gold;
+          this.engine.payJailFine(player.id, 50);
+          soundManager.playPayRent();
+          this.animateSinglePlayerCoinDeltaOnHUD(player.id, prevGold, player.gold);
+        } else {
+          const jailRoll = this.engine.attemptRollDoublesInJail(player.id);
+          await this.dice3D.animateRollAndFuseTotal(
+            jailRoll.d1,
+            jailRoll.d2,
+            throwPower,
+            this.gameSpeedMultiplier
+          );
+          document.getElementById('dice-last-result')!.textContent =
+            `🎲 ${jailRoll.d1}+${jailRoll.d2}=${jailRoll.total}${jailRoll.escaped ? ' (ĐÔI THOÁT TÙ!)' : ' (CHƯA ĐÔI)'}`;
+          this.dice3D.clearFusionFX();
+          this.renderHUD();
+
+          if (!jailRoll.escaped) {
+            await this.delay(650 / this.gameSpeedMultiplier);
+            this.advanceToNextTurn();
+            return;
+          }
+          d1 = jailRoll.d1;
+          d2 = jailRoll.d2;
+          total = jailRoll.total;
+          isDoubles = false;
+          alreadyRolledViaJailEscape = true;
+        }
+      }
+    }
+
+    if (!alreadyRolledViaJailEscape) {
+      const rollRes = this.engine.rollDice();
+      d1 = rollRes.d1;
+      d2 = rollRes.d2;
+      total = rollRes.total;
+      isDoubles = rollRes.isDoubles;
+      sentToJailByTripleDoubles = Boolean(rollRes.sentToJailByTripleDoubles);
+      await this.dice3D.animateRollAndFuseTotal(d1, d2, throwPower, this.gameSpeedMultiplier);
+
+      document.getElementById('dice-last-result')!.textContent =
+        `🎲 ${d1}+${d2}=${total}${isDoubles ? ' (ĐÔI!)' : ''}`;
+      this.renderHUD();
+    }
 
     // Wikipedia Monopoly Rule: Rolling 3 consecutive doubles sends player directly to #10 Jail (Đảo Cách Ly)!
     if (sentToJailByTripleDoubles) {
@@ -1140,6 +1297,19 @@ class AstroCyberrMonopolyApp {
         this.characters3D.eliminateCharacter(player.characterId);
         this.syncAllBuildingsToBoard();
       }
+    } else if (resolution.action === 'SENT_TO_JAIL') {
+      soundManager.playPayRent();
+      this.syncAllCharactersToBoard();
+      const jailTf = this.islandBoard.getTileStandTransform(10, playerIdx);
+      const jailCfg = this.engine.getTileConfig(10);
+      this.particles.spawnEndermanPortalParticles(jailTf.position);
+      await this.cameraDirector.focusTileEventCloseUp(
+        jailTf.position,
+        jailCfg.outwardRotationY,
+        this.gameSpeedMultiplier
+      );
+      this.showBottomLeftTilePopup(10);
+      this.renderHUD();
     } else if (resolution.action === 'CHEST_DRAWN') {
       soundManager.playCoinChime();
       this.syncAllCharactersToBoard();
@@ -1811,10 +1981,16 @@ class AstroCyberrMonopolyApp {
       </span>
       <h3 class="action-card-title">${
         res.action === 'CHEST_DRAWN'
-          ? '🧰 Mở Rương Sự Kiện Đô Thị!'
-          : res.action === 'SKIP_TURN_SET'
-            ? '🏝️ Tạm Giữ Tại Đảo Cách Ly (Mất 1 Lượt)!'
-            : tileCfg.name
+          ? res.chestCard?.deck === 'KHI_VAN'
+            ? '🧧 Thẻ Khí Vận Việt Nam!'
+            : '⚡ Thẻ Cơ Hội Việt Nam!'
+          : res.action === 'JUST_VISITING_JAIL'
+            ? '👀 Thăm Tù Chí Hòa (An Toàn • Không Mất Lượt)'
+            : res.action === 'SENT_TO_JAIL'
+              ? '🚓 Áp Giải Vào Nhà Tù Chí Hòa (#10)!'
+              : res.action === 'SKIP_TURN_SET'
+                ? '🏝️ Tạm Giữ Tại Đảo Cách Ly (Mất 1 Lượt)!'
+                : tileCfg.name
       }</h3>
       <p class="action-card-desc">${res.message}</p>
       <div class="action-btn-group">
@@ -2167,7 +2343,9 @@ class AstroCyberrMonopolyApp {
     btnRoll.disabled = this.isBusy || active.isBot;
     document.getElementById('btn-roll-text')!.textContent = active.isBot
       ? `${active.name} ĐANG ĐI...`
-      : 'TUNG XÚC XẮC';
+      : active.inJail
+        ? '🚓 THOÁT TÙ / TUNG XÚC XẮC'
+        : 'TUNG XÚC XẮC';
 
     const sidebar = document.getElementById('players-sidebar')!;
     sidebar.innerHTML = this.engine
@@ -2184,6 +2362,16 @@ class AstroCyberrMonopolyApp {
           if (charCfg) {
             statusPills.push(
               `<span class="status-pill status-pill-passive" title="${charCfg.passiveDescription}">${charCfg.passiveName}</span>`
+            );
+          }
+          if (p.inJail) {
+            statusPills.push(
+              `<span class="status-pill status-pill-skip">🚓 ĐANG Ở TÙ (#10)</span>`
+            );
+          }
+          if ((p.jailFreeCards ?? 0) > 0) {
+            statusPills.push(
+              `<span class="status-pill status-pill-passive">🕊️ Thẻ Ra Tù x${p.jailFreeCards}</span>`
             );
           }
           if (p.skipTurns > 0) {

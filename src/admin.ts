@@ -559,10 +559,12 @@ class MonopolyAdminConsole {
     const cardsContainer = document.getElementById('chest-cards-editor-grid')!;
     cardsContainer.innerHTML = CHEST_CARDS.map((card, i) => {
       const gDelta = card.goldDelta ?? 0;
+      const deckBadge =
+        card.deck === 'CO_HOI' ? '⚡ CƠ HỘI (#7,#22,#36)' : '🧧 KHÍ VẬN (#2,#17,#33)';
       return `
         <div class="entity-editor-card" data-card-idx="${i}">
           <div class="entity-card-header">
-            <span>🧰 Thẻ Rương #${i + 1} (${card.id})</span>
+            <span>${deckBadge} • #${i + 1} (${card.id})</span>
             <span>${gDelta >= 0 ? `+$${gDelta}` : `-$${Math.abs(gDelta)}`}</span>
           </div>
           <div class="admin-field">
