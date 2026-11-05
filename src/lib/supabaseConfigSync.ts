@@ -18,7 +18,7 @@ const SUPABASE_URL =
   viteEnv?.VITE_SUPABASE_URL || 'https://ichwmsoceppybdyiycyj.supabase.co';
 const SUPABASE_ANON_KEY =
   viteEnv?.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaHdtc29jZXBweWJkeWl5Y3lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0MzA1NzMsImV4cCI6MjEwOTAwNjU3M30.XH6KLBDhbGQxkTja77b1RzaZxkdpC2faD5KEp7XtfpE';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljaHdtc29jZXBweWJkeWl5Y3lqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0MzA1NzMsImV4cCI6MjEwOTAwNjU3M30.XH6KLBDhbGQxkTja77b1RzaZxkdpC2faD5KEp7XtfpE';
 
 export const ALLOWED_ADMIN_EMAILS: readonly string[] = [
   'astrocyberr@gmail.com',
