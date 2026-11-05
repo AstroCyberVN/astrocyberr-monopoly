@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
+import { createClient, RealtimeChannel, SupabaseClient, User } from '@supabase/supabase-js';
 import { RawTileConfigItem, TILES_CONFIG_40 } from '../config/tilesConfig';
 import {
   BOARD_SIZE,
@@ -102,31 +102,43 @@ export async function fetchAndApplyMonopolyCloudConfig(): Promise<MonopolyCloudR
   }
 }
 
+const realtimeListeners = new Set<(row: MonopolyCloudRow) => void>();
+let activeRealtimeChannel: RealtimeChannel | null = null;
+
 export function subscribeMonopolyCloudConfigRealtime(
   onUpdated: (row: MonopolyCloudRow) => void
 ): () => void {
-  const channel = supabase
-    .channel('monopoly_config_live_sync')
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'monopoly_config',
-        filter: 'id=eq.default'
-      },
-      (payload) => {
-        if (payload.new && typeof payload.new === 'object') {
-          const row = payload.new as MonopolyCloudRow;
-          applyCloudConfigToRuntime(row);
-          onUpdated(row);
+  realtimeListeners.add(onUpdated);
+
+  if (!activeRealtimeChannel) {
+    activeRealtimeChannel = supabase
+      .channel('monopoly_config_live_sync')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'monopoly_config',
+          filter: 'id=eq.default'
+        },
+        (payload) => {
+          if (payload.new && typeof payload.new === 'object') {
+            const row = payload.new as MonopolyCloudRow;
+            applyCloudConfigToRuntime(row);
+            realtimeListeners.forEach((listener) => listener(row));
+          }
         }
-      }
-    )
-    .subscribe();
+      )
+      .subscribe();
+  }
 
   return () => {
-    supabase.removeChannel(channel);
+    realtimeListeners.delete(onUpdated);
+    if (realtimeListeners.size === 0 && activeRealtimeChannel) {
+      const ch = activeRealtimeChannel;
+      activeRealtimeChannel = null;
+      supabase.removeChannel(ch);
+    }
   };
 }
 

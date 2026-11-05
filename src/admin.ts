@@ -31,6 +31,9 @@ class MonopolyAdminConsole {
   private tileSearchQuery = '';
   private tileTypeFilter = 'ALL';
   private toastTimer: number | null = null;
+  private activeAdminEmail: string | null = null;
+  private isHandlingAuth = false;
+  private unsubscribeRealtime: (() => void) | null = null;
 
   constructor() {
     this.bindAuthEvents();
@@ -93,21 +96,10 @@ class MonopolyAdminConsole {
     const loadingEl = document.getElementById('admin-auth-loading')!;
     const btnGoogle = document.getElementById('btn-google-login')!;
 
-    const {
-      data: { session },
-      error
-    } = await supabase.auth.getSession();
-
-    loadingEl.classList.add('hidden');
-    btnGoogle.classList.remove('hidden');
-
-    if (error) {
-      this.showAuthError(`❌ Lỗi kiểm tra phiên đăng nhập: ${error.message}`);
-    } else if (session?.user) {
-      await this.handleAuthenticatedUser(session.user.email ?? '');
-    }
-
     supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      loadingEl.classList.add('hidden');
+      btnGoogle.classList.remove('hidden');
+
       if (newSession?.user) {
         await this.handleAuthenticatedUser(newSession.user.email ?? '');
       } else {
@@ -119,45 +111,63 @@ class MonopolyAdminConsole {
   private async handleAuthenticatedUser(rawEmail: string): Promise<void> {
     const email = rawEmail.trim().toLowerCase();
 
-    if (!isAuthorizedAdminEmail(email)) {
-      await supabase.auth.signOut();
-      this.switchToAuthScreen();
-      this.showAuthError(
-        `⛔ Tài khoản "${rawEmail || 'Không xác định'}" không có quyền quản trị! Chỉ ${ALLOWED_ADMIN_EMAILS.join(' và ')} được phép truy cập /admin.`
-      );
+    if (this.activeAdminEmail === email || this.isHandlingAuth) {
       return;
     }
+    this.isHandlingAuth = true;
 
-    // Double-check against Supabase monopoly_admins table (RLS verified)
-    const { data: adminRow, error: adminErr } = await supabase
-      .from('monopoly_admins')
-      .select('email')
-      .eq('email', email)
-      .maybeSingle();
+    try {
+      if (!isAuthorizedAdminEmail(email)) {
+        await supabase.auth.signOut();
+        this.switchToAuthScreen();
+        this.showAuthError(
+          `⛔ Tài khoản "${rawEmail || 'Không xác định'}" không có quyền quản trị! Chỉ ${ALLOWED_ADMIN_EMAILS.join(' và ')} được phép truy cập /admin.`
+        );
+        return;
+      }
 
-    if (adminErr || !adminRow) {
-      await supabase.auth.signOut();
-      this.switchToAuthScreen();
-      this.showAuthError(
-        `⛔ Tài khoản "${email}" bị từ chối bởi chính sách bảo mật PostgreSQL RLS!`
-      );
-      return;
+      // Double-check against Supabase monopoly_admins table (RLS verified)
+      const { data: adminRow, error: adminErr } = await supabase
+        .from('monopoly_admins')
+        .select('email')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (adminErr || !adminRow) {
+        await supabase.auth.signOut();
+        this.switchToAuthScreen();
+        this.showAuthError(
+          `⛔ Tài khoản "${email}" bị từ chối bởi chính sách bảo mật PostgreSQL RLS!`
+        );
+        return;
+      }
+
+      this.activeAdminEmail = email;
+      this.hideAuthError();
+      document.getElementById('admin-auth-screen')!.classList.add('hidden');
+      document.getElementById('admin-dashboard')!.classList.remove('hidden');
+      document.getElementById('admin-user-email')!.textContent = `🟢 Admin: ${email}`;
+
+      await this.loadCloudConfigAndRenderAll();
+
+      if (this.unsubscribeRealtime) {
+        this.unsubscribeRealtime();
+      }
+      this.unsubscribeRealtime = subscribeMonopolyCloudConfigRealtime((cloud) => {
+        this.updateSyncBadge(cloud);
+        this.renderAllTabs();
+      });
+    } finally {
+      this.isHandlingAuth = false;
     }
-
-    this.hideAuthError();
-    document.getElementById('admin-auth-screen')!.classList.add('hidden');
-    document.getElementById('admin-dashboard')!.classList.remove('hidden');
-    document.getElementById('admin-user-email')!.textContent = `🟢 Admin: ${email}`;
-
-    await this.loadCloudConfigAndRenderAll();
-
-    subscribeMonopolyCloudConfigRealtime((cloud) => {
-      this.updateSyncBadge(cloud);
-      this.renderAllTabs();
-    });
   }
 
   private switchToAuthScreen(): void {
+    this.activeAdminEmail = null;
+    if (this.unsubscribeRealtime) {
+      this.unsubscribeRealtime();
+      this.unsubscribeRealtime = null;
+    }
     document.getElementById('admin-dashboard')!.classList.add('hidden');
     document.getElementById('admin-auth-screen')!.classList.remove('hidden');
     document.getElementById('admin-auth-loading')!.classList.add('hidden');
