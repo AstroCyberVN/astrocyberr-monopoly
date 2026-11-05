@@ -39,7 +39,7 @@ export interface MonopolyRulesConfig {
   buyoutMultiplier: number;
 }
 
-export const DEFAULT_GAME_RULES_CONFIG: MonopolyRulesConfig = {
+export const GAME_RULES_CONFIG: MonopolyRulesConfig = {
   initialGold: 1500,
   startBonus: 200,
   alexStartBonus: 240,
@@ -48,10 +48,6 @@ export const DEFAULT_GAME_RULES_CONFIG: MonopolyRulesConfig = {
   endermanPortalBonus: 50,
   liquidationRatePct: 75,
   buyoutMultiplier: 1.8
-};
-
-export const GAME_RULES_CONFIG: MonopolyRulesConfig = {
-  ...DEFAULT_GAME_RULES_CONFIG
 };
 
 export interface CharacterConfig {
@@ -223,30 +219,7 @@ export function getPerimeterGridCoords40(index: number): {
   };
 }
 
-const CUSTOM_TILES_STORAGE_KEY = 'astrocyberr_custom_tiles_v1';
-
-function loadMergedTileSpecs(): RawTileConfigItem[] {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return TILES_CONFIG_40.map((t) => structuredClone(t));
-  }
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_TILES_STORAGE_KEY);
-    if (!raw) return TILES_CONFIG_40.map((t) => structuredClone(t));
-    const parsed = JSON.parse(raw) as RawTileConfigItem[];
-    if (!Array.isArray(parsed) || parsed.length !== BOARD_SIZE) {
-      return TILES_CONFIG_40.map((t) => structuredClone(t));
-    }
-    return TILES_CONFIG_40.map((base, idx) => ({
-      ...base,
-      ...parsed[idx],
-      index: idx
-    }));
-  } catch {
-    return TILES_CONFIG_40.map((t) => structuredClone(t));
-  }
-}
-
-export const BOARD_TILES: TileConfig[] = loadMergedTileSpecs().map((tile) => ({
+export const BOARD_TILES: TileConfig[] = TILES_CONFIG_40.map((tile) => ({
   ...tile,
   ...getPerimeterGridCoords40(tile.index)
 }));
@@ -264,24 +237,7 @@ export function updateBoardTileConfigInPlace(
     ...getPerimeterGridCoords40(idx)
   };
   BOARD_TILES[idx] = updated;
-
-  if (typeof window !== 'undefined' && window.localStorage) {
-    const specs = getExportableTilesSpecArray();
-    window.localStorage.setItem(CUSTOM_TILES_STORAGE_KEY, JSON.stringify(specs));
-  }
   return updated;
-}
-
-export function resetBoardTilesToDefault(): void {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    window.localStorage.removeItem(CUSTOM_TILES_STORAGE_KEY);
-  }
-  TILES_CONFIG_40.forEach((base, idx) => {
-    BOARD_TILES[idx] = {
-      ...structuredClone(base),
-      ...getPerimeterGridCoords40(idx)
-    };
-  });
 }
 
 export function getExportableTilesSpecArray(): RawTileConfigItem[] {

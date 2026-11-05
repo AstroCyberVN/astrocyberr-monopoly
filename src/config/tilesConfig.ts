@@ -1,18 +1,21 @@
 import { ColorGroupId, TileType } from '../core/boardData';
 
 /**
- * Cấu hình từng ô vuông trên bàn cờ 40 ô (Real Monopoly Standard + Modern City x Minecraft Voxel).
- * Bạn có thể tự chỉnh sửa trực tiếp bất kỳ thông số nào dưới đây:
- * - name: Tên ô hiển thị trên mặt ô 3D và Popup
- * - type: Loại ô ('START' | 'PROPERTY' | 'CHEST' | 'DESERTED_ISLAND' | 'FESTIVAL' | 'END_PORTAL' | 'NETHER_PORTAL' | 'ROYAL_TAX' | 'RAILROAD' | 'UTILITY')
- * - icon: Biểu tượng Emoji
- * - colorGroup: Nhóm màu (dành cho ô PROPERTY)
- * - colorHex: Mã màu chủ đạo của ô
- * - price: Giá mua ô đất / bến tàu / công ty (hoặc mức thuế đối với ROYAL_TAX)
- * - upgradeCost: Chi phí nâng cấp mỗi cấp công trình (Cấp 1 -> 4)
- * - rents: Bảng giá thuê 4 cấp [Cấp 1, Cấp 2, Cấp 3, Cấp 4] (hoặc sở hữu 1..4 ga tàu)
- * - rentReason: Lý do phải trả tiền khi người chơi khác đi vào ô đất này (<lí do> hiển thị trong bảng Xác nhận thanh toán)
- * - description: Mô tả ngắn hiển thị ở cuối Popup
+ * Cấu hình 40 ô vuông chuẩn Monopoly Quốc Tế (Wikipedia Standard 40-Tile Layout + Minecraft Voxel):
+ * - 22 Ô Đất (PROPERTY) chia thành 8 cụm màu chuẩn (2 - 3 - 3 - 3 - 3 - 3 - 3 - 2):
+ *   1. PLAINS (Brown - #92400e): Ô #1 ($60), #3 ($60) — Giá xây nhà $50
+ *   2. OAK_FOREST (Light Blue - #38bdf8): Ô #6 ($100), #8 ($100), #9 ($120) — Giá xây nhà $50
+ *   3. SWAMP (Pink - #ec4899): Ô #11 ($140), #13 ($140), #14 ($160) — Giá xây nhà $100
+ *   4. DESERT (Orange - #f97316): Ô #16 ($180), #18 ($180), #19 ($200) — Giá xây nhà $100
+ *   5. SNOWY_PEAKS (Red - #ef4444): Ô #21 ($220), #23 ($220), #24 ($240) — Giá xây nhà $150
+ *   6. CHERRY_GROVE (Yellow - #eab308): Ô #26 ($260), #27 ($260), #29 ($280) — Giá xây nhà $150
+ *   7. NETHER (Green - #22c55e): Ô #31 ($300), #32 ($300), #34 ($320) — Giá xây nhà $200
+ *   8. END_CITY (Dark Blue - #6366f1): Ô #37 ($350), #39 ($400) — Giá xây nhà $200
+ * - 4 Tuyến Đường Sắt (RAILROAD): Ô #5, #15, #25, #35 ($200 — Thuê $25 / $50 / $100 / $200 theo số ga sở hữu)
+ * - 2 Công Ty Tiện Ích (UTILITY): Ô #12 Điện Lực, #28 Thủy Cục ($150 — Thuê = Điểm Xúc Xắc × 4 hoặc × 10)
+ * - 6 Ô Rương Cộng Đồng & Khí Vận (CHEST): Ô #2, #7, #17, #22, #33, #36
+ * - 2 Ô Thuế (ROYAL_TAX): Ô #4 Thuế Thu Nhập ($200), Ô #38 Thuế Xa Xỉ ($100)
+ * - 4 Ô Góc: Ô #0 GO (+$200), Ô #10 Đảo Cách Ly (Jail), Ô #20 Lễ Hội (Free Parking), Ô #30 Cổng The End
  */
 export interface RawTileConfigItem {
   index: number;
@@ -29,7 +32,7 @@ export interface RawTileConfigItem {
 }
 
 export const TILES_CONFIG_40: RawTileConfigItem[] = [
-  // ======================== CẠNH NAM (Ô #0 .. #9) ========================
+  // ======================== CẠNH NAM (Ô #0 .. #9 | Giá nâng cấp nhà: $50) ========================
   {
     index: 0,
     name: 'Đại Lộ Khởi Hành (GO)',
@@ -40,16 +43,16 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
   },
   {
     index: 1,
-    name: 'Phố Cổ Đất Nung',
+    name: 'Phố Cổ Đất Nung (Mediterranean)',
     type: 'PROPERTY',
     icon: '🧱',
     colorGroup: 'PLAINS',
-    colorHex: '#84cc16',
+    colorHex: '#92400e',
     price: 60,
     upgradeCost: 50,
-    rents: [20, 60, 180, 320],
+    rents: [10, 30, 90, 250],
     rentReason: 'dừng chân tham quan và mua sắm tại khu phố gốm Đất Nung cổ kính',
-    description: 'Khu phố khởi nghiệp giá mềm lấy cảm hứng từ Mediterranean Avenue.'
+    description: 'Cụm Nâu (1/2) • Giá $60 • Nâng cấp $50 (Mediterranean Avenue).'
   },
   {
     index: 2,
@@ -57,98 +60,98 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'CHEST',
     icon: '🧰',
     colorHex: '#f59e0b',
-    description: 'Mở Rương Quỹ Cộng Đồng Thành Phố để nhận thưởng $ hoặc sự kiện bất ngờ!'
+    description: 'Mở Rương Quỹ Cộng Đồng (Community Chest) để nhận thưởng $ hoặc sự kiện bất ngờ!'
   },
   {
     index: 3,
-    name: 'Hẻm Chợ Đêm Đá Cuội',
+    name: 'Hẻm Chợ Đêm Đá Cuội (Baltic)',
     type: 'PROPERTY',
     icon: '🏮',
     colorGroup: 'PLAINS',
-    colorHex: '#84cc16',
+    colorHex: '#92400e',
     price: 60,
     upgradeCost: 50,
-    rents: [25, 80, 220, 400],
+    rents: [20, 60, 180, 450],
     rentReason: 'thưởng thức ẩm thực đường phố và thuê sạp hàng tại Chợ Đêm Đá Cuội',
-    description: 'Khu chợ đêm sầm uất bậc nhất quận Phố Cổ (Baltic Avenue).'
+    description: 'Cụm Nâu (2/2) • Giá $60 • Nâng cấp $50 (Baltic Avenue).'
   },
   {
     index: 4,
-    name: 'Thuế Thu Nhập Đô Thị',
+    name: 'Thuế Thu Nhập Đô Thị (Income Tax)',
     type: 'ROYAL_TAX',
     icon: '🏛️',
     colorHex: '#eab308',
     price: 200,
     rentReason: 'khai báo thuế thu nhập cá nhân định kỳ tại Tòa Thị Chính Thành Phố',
-    description: 'Nộp Thuế Thu Nhập Đô Thị -$200 vào ngân sách phát triển thành phố.'
+    description: 'Nộp Thuế Thu Nhập (Income Tax) -$200 vào ngân sách thành phố.'
   },
   {
     index: 5,
-    name: 'Ga Metro Nam (Reading)',
+    name: 'Ga Đường Sắt Reading',
     type: 'RAILROAD',
-    icon: '🚆',
+    icon: '🚂',
     colorHex: '#64748b',
     price: 200,
-    rents: [50, 100, 200, 400],
-    rentReason: 'mua vé tàu điện cao tốc Minecart tại Ga Metro Nam',
-    description: 'Tuyến Metro tốc hành phía Nam • Sở hữu 1/2/3/4 ga thu $50/$100/$200/$400.'
+    rents: [25, 50, 100, 200],
+    rentReason: 'mua vé tàu điện cao tốc Minecart tại Ga Đường Sắt Reading',
+    description: 'Tuyến Đường Sắt 1/4 • Sở hữu 1/2/3/4 ga thu $25/$50/$100/$200.'
   },
   {
     index: 6,
-    name: 'Phố Đèn Lồng Glowstone',
+    name: 'Phố Đèn Lồng Glowstone (Oriental)',
     type: 'PROPERTY',
     icon: '💡',
     colorGroup: 'OAK_FOREST',
-    colorHex: '#22c55e',
+    colorHex: '#38bdf8',
     price: 100,
     upgradeCost: 50,
-    rents: [30, 90, 270, 450],
+    rents: [30, 90, 270, 550],
     rentReason: 'check-in và sử dụng dịch vụ chiếu sáng tại Phố Đèn Lồng Glowstone',
-    description: 'Con phố rực rỡ ánh đèn pha lê suốt đêm (Oriental Avenue).'
+    description: 'Cụm Xanh Lam Nhạt (1/3) • Giá $100 • Nâng cấp $50 (Oriental Avenue).'
   },
   {
     index: 7,
-    name: 'Trạm Cơ Hội Redstone',
+    name: 'Trạm Cơ Hội Redstone (Chance)',
     type: 'CHEST',
     icon: '🎲',
     colorHex: '#f59e0b',
-    description: 'Rút thẻ Cơ Hội Đô Thị để thử vận may tài chính hoặc dịch chuyển nhanh!'
+    description: 'Rút thẻ Cơ Hội (Chance) để thử vận may tài chính hoặc dịch chuyển nhanh!'
   },
   {
     index: 8,
-    name: 'Đại Lộ Học Viện Kiến Trúc',
+    name: 'Đại Lộ Học Viện Vermont',
     type: 'PROPERTY',
     icon: '📐',
     colorGroup: 'OAK_FOREST',
-    colorHex: '#22c55e',
+    colorHex: '#38bdf8',
     price: 100,
     upgradeCost: 50,
-    rents: [30, 90, 270, 450],
-    rentReason: 'mua vé tham quan triển lãm quy hoạch đô thị tại Học Viện Kiến Trúc',
-    description: 'Trung tâm thiết kế các công trình Voxel hiện đại (Vermont Avenue).'
+    rents: [30, 90, 270, 550],
+    rentReason: 'mua vé tham quan triển lãm quy hoạch đô thị tại Học Viện Vermont',
+    description: 'Cụm Xanh Lam Nhạt (2/3) • Giá $100 • Nâng cấp $50 (Vermont Avenue).'
   },
   {
     index: 9,
-    name: 'Quảng Trường Tháp Đồng Hồ',
+    name: 'Quảng Trường Tháp Đồng Hồ (Connecticut)',
     type: 'PROPERTY',
     icon: '🕰️',
     colorGroup: 'OAK_FOREST',
-    colorHex: '#22c55e',
+    colorHex: '#38bdf8',
     price: 120,
     upgradeCost: 50,
-    rents: [40, 100, 300, 500],
-    rentReason: 'đỗ xe và lên đài ngắm cảnh tại Quảng Trường Tháp Đồng Hồ',
-    description: 'Biểu tượng kiến trúc cổ điển giao thoa hiện đại (Connecticut Avenue).'
+    rents: [40, 100, 300, 600],
+    rentReason: 'đỗ xe và lên đài ngắm cảnh tại Quảng Trường Tháp Đồng Hồ Connecticut',
+    description: 'Cụm Xanh Lam Nhạt (3/3) • Giá $120 • Nâng cấp $50 (Connecticut Avenue).'
   },
 
-  // ======================== CẠNH TÂY (Ô #10 .. #19) ========================
+  // ======================== CẠNH TÂY (Ô #10 .. #19 | Giá nâng cấp nhà: $100) ========================
   {
     index: 10,
-    name: 'Đảo Cách Ly (Trại Giam)',
+    name: 'Đảo Cách Ly (Jail)',
     type: 'DESERTED_ISLAND',
     icon: '🏝️',
     colorHex: '#0ea5e9',
-    description: 'Tạm giữ tại Đảo Cách Ly! Phải nghỉ 1 lượt để hoàn tất thủ tục hải quan.'
+    description: 'Tạm giữ tại Đảo Cách Ly (Jail)! Nghỉ 1 lượt (hoặc bị chuyển tới khi đổ đôi 3 lần liên tiếp).'
   },
   {
     index: 11,
@@ -156,36 +159,36 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🎬',
     colorGroup: 'SWAMP',
-    colorHex: '#14b8a6',
+    colorHex: '#ec4899',
     price: 140,
     upgradeCost: 100,
-    rents: [50, 150, 450, 625],
+    rents: [50, 150, 450, 750],
     rentReason: 'mua vé VIP xem công chiếu phim 3D tại Rạp Đại Nhạc Kịch St. Charles',
-    description: 'Khu phố giải trí và rạp chiếu phim sầm uất (St. Charles Place).'
+    description: 'Cụm Hồng (1/3) • Giá $140 • Nâng cấp $100 (St. Charles Place).'
   },
   {
     index: 12,
-    name: 'Tập Đoàn Điện Lực Redstone',
+    name: 'Công Ty Điện Lực Redstone (Electric Co.)',
     type: 'UTILITY',
     icon: '⚡',
     colorHex: '#ef4444',
     price: 150,
-    rents: [60, 150, 260, 400],
-    rentReason: 'thanh toán hóa đơn tiêu thụ điện năng cao áp từ Lưới Điện Redstone',
-    description: 'Nhà máy cung cấp năng lượng Redstone cho toàn bộ thành phố (Electric Company).'
+    rents: [4, 10, 10, 10],
+    rentReason: 'thanh toán hóa đơn điện năng Redstone tính theo chỉ số xúc xắc',
+    description: 'Công Ty Tiện Ích 1/2 • Sở hữu 1 công ty thu 4× xúc xắc, sở hữu cả 2 thu 10× xúc xắc!'
   },
   {
     index: 13,
-    name: 'Phố Triển Lãm Nghệ Thuật',
+    name: 'Phố Triển Lãm Nghệ Thuật (States)',
     type: 'PROPERTY',
     icon: '🎨',
     colorGroup: 'SWAMP',
-    colorHex: '#14b8a6',
+    colorHex: '#ec4899',
     price: 140,
     upgradeCost: 100,
-    rents: [50, 150, 450, 625],
-    rentReason: 'tham quan bảo tàng điêu khắc khối Voxel đương đại',
-    description: 'Tụ điểm văn hóa nghệ thuật của giới trẻ thành phố (States Avenue).'
+    rents: [50, 150, 450, 750],
+    rentReason: 'tham quan bảo tàng điêu khắc khối Voxel đương đại tại States Avenue',
+    description: 'Cụm Hồng (2/3) • Giá $140 • Nâng cấp $100 (States Avenue).'
   },
   {
     index: 14,
@@ -193,23 +196,23 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🎸',
     colorGroup: 'SWAMP',
-    colorHex: '#14b8a6',
+    colorHex: '#ec4899',
     price: 160,
     upgradeCost: 100,
-    rents: [60, 180, 500, 700],
+    rents: [60, 180, 500, 900],
     rentReason: 'thuê khu vực Lounge thưởng thức đại nhạc hội Note Block tại Virginia',
-    description: 'Sân khấu âm nhạc ngoài trời sôi động suốt ngày đêm (Virginia Avenue).'
+    description: 'Cụm Hồng (3/3) • Giá $160 • Nâng cấp $100 (Virginia Avenue).'
   },
   {
     index: 15,
-    name: 'Ga Metro Tây (Pennsylvania)',
+    name: 'Ga Đường Sắt Pennsylvania',
     type: 'RAILROAD',
     icon: '🚝',
     colorHex: '#64748b',
     price: 200,
-    rents: [50, 100, 200, 400],
-    rentReason: 'di chuyển bằng tàu điện trên cao tại Ga Metro Tây',
-    description: 'Tuyến tàu điện xuyên tâm phía Tây • Sở hữu 1/2/3/4 ga thu $50/$100/$200/$400.'
+    rents: [25, 50, 100, 200],
+    rentReason: 'di chuyển bằng tàu điện trên cao tại Ga Đường Sắt Pennsylvania',
+    description: 'Tuyến Đường Sắt 2/4 • Sở hữu 1/2/3/4 ga thu $25/$50/$100/$200.'
   },
   {
     index: 16,
@@ -217,20 +220,20 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '☕',
     colorGroup: 'DESERT',
-    colorHex: '#f59e0b',
+    colorHex: '#f97316',
     price: 180,
     upgradeCost: 100,
-    rents: [70, 200, 550, 750],
-    rentReason: 'thưởng thức cà phê hạt Cacao rang xay thượng hạng tại St. James Lounge',
-    description: 'Chuỗi cửa hàng cà phê và làm việc sang trọng (St. James Place).'
+    rents: [70, 200, 550, 950],
+    rentReason: 'thưởng thức cà phê hạt Cacao rang xay thượng hạng tại St. James Place',
+    description: 'Cụm Cam (1/3) • Giá $180 • Nâng cấp $100 (St. James Place).'
   },
   {
     index: 17,
-    name: 'Quỹ Đầu Tư Đô Thị',
+    name: 'Quỹ Đầu Tư Cộng Đồng',
     type: 'CHEST',
     icon: '🧰',
     colorHex: '#f59e0b',
-    description: 'Mở Rương Quỹ Đầu Tư Đô Thị để nhận cổ tức hoặc tài trợ thương mại!'
+    description: 'Mở Rương Quỹ Cộng Đồng (Community Chest) để nhận cổ tức hoặc tài trợ thương mại!'
   },
   {
     index: 18,
@@ -238,12 +241,12 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '💼',
     colorGroup: 'DESERT',
-    colorHex: '#f59e0b',
+    colorHex: '#f97316',
     price: 180,
     upgradeCost: 100,
-    rents: [70, 200, 550, 750],
+    rents: [70, 200, 550, 950],
     rentReason: 'thuê văn phòng Co-working Space và phòng họp tại Tháp Tennessee',
-    description: 'Thung lũng công nghệ và vườn ươm doanh nghiệp trẻ (Tennessee Avenue).'
+    description: 'Cụm Cam (2/3) • Giá $180 • Nâng cấp $100 (Tennessee Avenue).'
   },
   {
     index: 19,
@@ -251,22 +254,22 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🏙️',
     colorGroup: 'DESERT',
-    colorHex: '#f59e0b',
+    colorHex: '#f97316',
     price: 200,
     upgradeCost: 100,
-    rents: [80, 220, 600, 800],
-    rentReason: 'thuê màn hình LED quảng cáo thương hiệu tại Quảng Trường Thời Đại New York',
-    description: 'Giao lộ thương mại đắt giá bậc nhất khu vực phía Tây (New York Avenue).'
+    rents: [80, 220, 600, 1000],
+    rentReason: 'thuê màn hình LED quảng cáo thương hiệu tại Quảng Trường New York',
+    description: 'Cụm Cam (3/3) • Giá $200 • Nâng cấp $100 (New York Avenue).'
   },
 
-  // ======================== CẠNH BẮC (Ô #20 .. #29) ========================
+  // ======================== CẠNH BẮC (Ô #20 .. #29 | Giá nâng cấp nhà: $150) ========================
   {
     index: 20,
     name: 'Quảng Trường Lễ Hội (Free Parking)',
     type: 'FESTIVAL',
     icon: '🎉',
     colorHex: '#ec4899',
-    description: 'Đại Tiệc Lễ Hội Thành Phố! Chọn 1 ô đất của bạn để NHÂN ĐÔI (x2) tiền thuê!'
+    description: 'Trạm Dừng Lễ Hội (Free Parking)! Chọn 1 ô đất của bạn để NHÂN ĐÔI (x2) tiền thuê!'
   },
   {
     index: 21,
@@ -274,20 +277,20 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🏟️',
     colorGroup: 'SNOWY_PEAKS',
-    colorHex: '#38bdf8',
+    colorHex: '#ef4444',
     price: 220,
     upgradeCost: 150,
-    rents: [90, 250, 700, 875],
-    rentReason: 'mua vé kháng đài hạng Nhất xem chung kết thể thao tại Sân Vận Động Kentucky',
-    description: 'Tổ hợp đấu trường thể thao hiện đại sức chứa vạn người (Kentucky Avenue).'
+    rents: [90, 250, 700, 1050],
+    rentReason: 'mua vé khán đài hạng Nhất xem chung kết thể thao tại Sân Vận Động Kentucky',
+    description: 'Cụm Đỏ (1/3) • Giá $220 • Nâng cấp $150 (Kentucky Avenue).'
   },
   {
     index: 22,
-    name: 'Trạm Cơ Hội Thương Thương',
+    name: 'Trạm Cơ Hội Phương Bắc (Chance)',
     type: 'CHEST',
     icon: '🎰',
     colorHex: '#f59e0b',
-    description: 'Mở thẻ Cơ Hội Thương Trường để đón sóng đầu tư bất động sản!'
+    description: 'Mở thẻ Cơ Hội (Chance) để đón sóng đầu tư bất động sản!'
   },
   {
     index: 23,
@@ -295,12 +298,12 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🍽️',
     colorGroup: 'SNOWY_PEAKS',
-    colorHex: '#38bdf8',
+    colorHex: '#ef4444',
     price: 220,
     upgradeCost: 150,
-    rents: [90, 250, 700, 875],
+    rents: [90, 250, 700, 1050],
     rentReason: 'dùng tiệc tối Michelin với Táo Vàng Enchant tại nhà hàng Indiana',
-    description: 'Thiên đường ẩm thực 5 sao của giới thượng lưu (Indiana Avenue).'
+    description: 'Cụm Đỏ (2/3) • Giá $220 • Nâng cấp $150 (Indiana Avenue).'
   },
   {
     index: 24,
@@ -308,23 +311,23 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '📡',
     colorGroup: 'SNOWY_PEAKS',
-    colorHex: '#38bdf8',
+    colorHex: '#ef4444',
     price: 240,
     upgradeCost: 150,
-    rents: [100, 300, 750, 925],
+    rents: [100, 300, 750, 1100],
     rentReason: 'lên tầng thượng Skydeck ngắm toàn cảnh đảo nổi từ Tháp Truyền Hình Illinois',
-    description: 'Tòa tháp truyền thông cao nhất phía Bắc thành phố (Illinois Avenue).'
+    description: 'Cụm Đỏ (3/3) • Giá $240 • Nâng cấp $150 (Illinois Avenue).'
   },
   {
     index: 25,
-    name: 'Ga Metro Bắc (B. & O.)',
+    name: 'Ga Đường Sắt B. & O.',
     type: 'RAILROAD',
     icon: '🚄',
     colorHex: '#64748b',
     price: 200,
-    rents: [50, 100, 200, 400],
-    rentReason: 'mua vé tàu tốc hành liên quận tại Ga Metro Bắc',
-    description: 'Tuyến đường sắt huyết mạch phía Bắc • Sở hữu 1/2/3/4 ga thu $50/$100/$200/$400.'
+    rents: [25, 50, 100, 200],
+    rentReason: 'mua vé tàu tốc hành liên quận tại Ga Đường Sắt B. & O.',
+    description: 'Tuyến Đường Sắt 3/4 • Sở hữu 1/2/3/4 ga thu $25/$50/$100/$200.'
   },
   {
     index: 26,
@@ -332,12 +335,12 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🛥️',
     colorGroup: 'CHERRY_GROVE',
-    colorHex: '#f472b6',
+    colorHex: '#eab308',
     price: 260,
     upgradeCost: 150,
-    rents: [110, 330, 800, 975],
+    rents: [110, 330, 800, 1150],
     rentReason: 'neo đậu du thuyền cá nhân và sử dụng dịch vụ CLB Bến Cảng Atlantic',
-    description: 'Bến cảng du thuyền hạng sang bên bờ biển xanh (Atlantic Avenue).'
+    description: 'Cụm Vàng (1/3) • Giá $260 • Nâng cấp $150 (Atlantic Avenue).'
   },
   {
     index: 27,
@@ -345,23 +348,23 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🏖️',
     colorGroup: 'CHERRY_GROVE',
-    colorHex: '#f472b6',
+    colorHex: '#eab308',
     price: 260,
     upgradeCost: 150,
-    rents: [110, 330, 800, 975],
+    rents: [110, 330, 800, 1150],
     rentReason: 'nghỉ dưỡng cuối tuần tại khu Resort biển cao cấp Ventnor',
-    description: 'Quần thể biệt thự biển và hồ bơi vô cực (Ventnor Avenue).'
+    description: 'Cụm Vàng (2/3) • Giá $260 • Nâng cấp $150 (Ventnor Avenue).'
   },
   {
     index: 28,
-    name: 'Thủy Cục & Tháp Beacon',
+    name: 'Thủy Cục Đô Thị (Water Works)',
     type: 'UTILITY',
-    icon: '🔮',
+    icon: '💧',
     colorHex: '#38bdf8',
     price: 150,
-    rents: [60, 150, 260, 400],
-    rentReason: 'đóng phí sử dụng nước sạch và hào quang tăng tốc từ Tháp Ánh Sáng Beacon',
-    description: 'Tổ hợp cấp nước đô thị kết hợp Tháp Hải Đăng Kim Cương (Water Works).'
+    rents: [4, 10, 10, 10],
+    rentReason: 'đóng phí sử dụng nước sạch đô thị tính theo chỉ số xúc xắc',
+    description: 'Công Ty Tiện Ích 2/2 • Sở hữu 1 công ty thu 4× xúc xắc, sở hữu cả 2 thu 10× xúc xắc!'
   },
   {
     index: 29,
@@ -369,15 +372,15 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🌸',
     colorGroup: 'CHERRY_GROVE',
-    colorHex: '#f472b6',
+    colorHex: '#eab308',
     price: 280,
     upgradeCost: 150,
-    rents: [120, 360, 850, 1025],
+    rents: [120, 360, 850, 1200],
     rentReason: 'tham quan khu vườn vòm kính hoa Anh Đào Sakura tại Marvin Gardens',
-    description: 'Khu đô thị sinh thái xanh mát đắt khách bậc nhất (Marvin Gardens).'
+    description: 'Cụm Vàng (3/3) • Giá $280 • Nâng cấp $150 (Marvin Gardens).'
   },
 
-  // ======================== CẠNH ĐÔNG (Ô #30 .. #39) ========================
+  // ======================== CẠNH ĐÔNG (Ô #30 .. #39 | Giá nâng cấp nhà: $200) ========================
   {
     index: 30,
     name: 'Cổng Dịch Chuyển The End',
@@ -392,12 +395,12 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🌴',
     colorGroup: 'NETHER',
-    colorHex: '#ef4444',
+    colorHex: '#22c55e',
     price: 300,
     upgradeCost: 200,
-    rents: [130, 390, 900, 1100],
+    rents: [130, 390, 900, 1275],
     rentReason: 'thuê mặt bằng thương mại quốc tế tại Đại Lộ Thái Bình Dương',
-    description: 'Trục đại lộ thương mại ven biển sầm uất (Pacific Avenue).'
+    description: 'Cụm Xanh Lá (1/3) • Giá $300 • Nâng cấp $200 (Pacific Avenue).'
   },
   {
     index: 32,
@@ -405,20 +408,20 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '📈',
     colorGroup: 'NETHER',
-    colorHex: '#ef4444',
+    colorHex: '#22c55e',
     price: 300,
     upgradeCost: 200,
-    rents: [130, 390, 900, 1100],
+    rents: [130, 390, 900, 1275],
     rentReason: 'thanh toán phí môi giới chứng khoán và lưu ký Vàng tại Sàn North Carolina',
-    description: 'Trung tâm tài chính và giao dịch kim loại quý (North Carolina Avenue).'
+    description: 'Cụm Xanh Lá (2/3) • Giá $300 • Nâng cấp $200 (North Carolina Avenue).'
   },
   {
     index: 33,
-    name: 'Cổng Cao Tốc Nether',
-    type: 'NETHER_PORTAL',
-    icon: '🟣',
-    colorHex: '#a855f7',
-    description: 'Cổng Obsidian Nether! Nhảy vọt xuyên chiều không gian (1 bước Nether = 8 bước Overworld) kèm +$120!'
+    name: 'Quỹ Cộng Đồng Hoàng Gia',
+    type: 'CHEST',
+    icon: '🧰',
+    colorHex: '#f59e0b',
+    description: 'Mở Rương Quỹ Cộng Đồng (Community Chest) khu Thượng Lưu để nhận cổ tức lớn!'
   },
   {
     index: 34,
@@ -426,33 +429,31 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🏦',
     colorGroup: 'NETHER',
-    colorHex: '#ef4444',
+    colorHex: '#22c55e',
     price: 320,
     upgradeCost: 200,
-    rents: [150, 450, 1000, 1200],
+    rents: [150, 450, 1000, 1400],
     rentReason: 'thuê hầm két sắt bảo mật Kim Cương & Netherite tại Ngân Hàng Pennsylvania',
-    description: 'Trụ sở ngân hàng trung ương kiên cố bậc nhất (Pennsylvania Avenue).'
+    description: 'Cụm Xanh Lá (3/3) • Giá $320 • Nâng cấp $200 (Pennsylvania Avenue).'
   },
   {
     index: 35,
-    name: 'Ga Tàu Siêu Tốc Đông (Short Line)',
+    name: 'Ga Tàu Cao Tốc Short Line',
     type: 'RAILROAD',
     icon: '🚅',
     colorHex: '#64748b',
     price: 200,
-    rents: [50, 100, 200, 400],
-    rentReason: 'mua vé khoang hạng Nhất trên tuyến Tàu Đệm Từ Siêu Tốc phía Đông',
-    description: 'Tuyến tàu siêu tốc kết nối khu Thượng Lưu • Sở hữu 1/2/3/4 ga thu $50/$100/$200/$400.'
+    rents: [25, 50, 100, 200],
+    rentReason: 'mua vé khoang hạng Nhất trên tuyến Tàu Đệm Từ Short Line',
+    description: 'Tuyến Đường Sắt 4/4 • Sở hữu 1/2/3/4 ga thu $25/$50/$100/$200.'
   },
   {
     index: 36,
-    name: 'Thuế Xa Xỉ Phẩm (Luxury Tax)',
-    type: 'ROYAL_TAX',
-    icon: '💎',
-    colorHex: '#eab308',
-    price: 100,
-    rentReason: 'đóng thuế tiêu thụ đặc biệt cho siêu xe Minecart và cánh Elytra mạ vàng',
-    description: 'Nộp Thuế Xa Xỉ Phẩm -$100 vào Kho Bạc Thành Phố.'
+    name: 'Trạm Cơ Hội Thượng Lưu (Chance)',
+    type: 'CHEST',
+    icon: '🎲',
+    colorHex: '#f59e0b',
+    description: 'Rút thẻ Cơ Hội (Chance) khu Thượng Lưu với phần thưởng và biến động lớn!'
   },
   {
     index: 37,
@@ -460,25 +461,22 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '🏰',
     colorGroup: 'END_CITY',
-    colorHex: '#a855f7',
+    colorHex: '#6366f1',
     price: 350,
     upgradeCost: 200,
-    rents: [175, 500, 1100, 1300],
+    rents: [175, 500, 1100, 1500],
     rentReason: 'lưu trú tại khu dinh thự tỷ phú biệt lập trên Đồi Park Place',
-    description: 'Khu dinh thự siêu sang dành riêng cho giới tài phiệt (Park Place).'
+    description: 'Cụm Xanh Đậm (1/2) • Giá $350 • Nâng cấp $200 (Park Place).'
   },
   {
     index: 38,
-    name: 'Cảng Vũ Trụ Elytra Skyport',
-    type: 'PROPERTY',
-    icon: '🚀',
-    colorHex: '#a855f7',
-    colorGroup: 'END_CITY',
-    price: 380,
-    upgradeCost: 200,
-    rents: [185, 550, 1200, 1400],
-    rentReason: 'sử dụng đường băng cất hạ cánh chuyên cơ riêng tại Cảng Vũ Trụ Elytra',
-    description: 'Tổ hợp sân bay quốc tế và trạm phóng tàu không gian hiện đại.'
+    name: 'Thuế Xa Xỉ Phẩm (Luxury Tax)',
+    type: 'ROYAL_TAX',
+    icon: '💎',
+    colorHex: '#eab308',
+    price: 100,
+    rentReason: 'đóng thuế tiêu thụ đặc biệt cho siêu xe Minecart và cánh Elytra mạ vàng',
+    description: 'Nộp Thuế Xa Xỉ Phẩm (Luxury Tax) -$100 vào Kho Bạc Thành Phố.'
   },
   {
     index: 39,
@@ -486,11 +484,11 @@ export const TILES_CONFIG_40: RawTileConfigItem[] = [
     type: 'PROPERTY',
     icon: '👑',
     colorGroup: 'END_CITY',
-    colorHex: '#a855f7',
+    colorHex: '#6366f1',
     price: 400,
     upgradeCost: 200,
-    rents: [200, 600, 1400, 1700],
+    rents: [200, 600, 1400, 2000],
     rentReason: 'nghỉ dưỡng tại Penthouse Hoàng Gia đắt giá nhất thành phố trên Đại Lộ Boardwalk',
-    description: 'Bất động sản quyền lực và đắt giá nhất toàn bộ bàn cờ 40 ô (Boardwalk)!'
+    description: 'Cụm Xanh Đậm (2/2) • Giá $400 • Nâng cấp $200 (Boardwalk)!'
   }
 ];

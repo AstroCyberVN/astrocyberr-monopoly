@@ -5,11 +5,9 @@ import {
   CHARACTER_CONFIGS,
   CHEST_CARDS,
   ColorGroupId,
-  DEFAULT_GAME_RULES_CONFIG,
   GAME_RULES_CONFIG,
   TileType,
   getExportableTilesSpecArray,
-  resetBoardTilesToDefault,
   updateBoardTileConfigInPlace
 } from './core/boardData';
 import {
@@ -22,9 +20,6 @@ import {
   subscribeMonopolyCloudConfigRealtime,
   supabase
 } from './lib/supabaseConfigSync';
-
-const INITIAL_CHARACTERS_SNAPSHOT = CHARACTER_CONFIGS.map((c) => ({ ...c }));
-const INITIAL_CHEST_CARDS_SNAPSHOT = CHEST_CARDS.map((c) => ({ ...c }));
 
 class MonopolyAdminConsole {
   private selectedTileIndex = 0;
@@ -353,36 +348,6 @@ class MonopolyAdminConsole {
         this.showToast(`❌ File JSON không hợp lệ: ${(err as Error).message}`, true);
       } finally {
         importInput.value = '';
-      }
-    });
-
-    // Reset all to defaults
-    document.getElementById('btn-reset-defaults')!.addEventListener('click', async () => {
-      if (
-        !window.confirm(
-          'Bạn có chắc chắn muốn khôi phục toàn bộ 40 Ô Cờ, Luật Kinh Tế, Nhân Vật & Rương về mặc định và đồng bộ lên Supabase?'
-        )
-      ) {
-        return;
-      }
-
-      resetBoardTilesToDefault();
-      Object.assign(GAME_RULES_CONFIG, DEFAULT_GAME_RULES_CONFIG);
-      INITIAL_CHARACTERS_SNAPSHOT.forEach((snap, idx) => {
-        Object.assign(CHARACTER_CONFIGS[idx], snap);
-      });
-      CHEST_CARDS.splice(
-        0,
-        CHEST_CARDS.length,
-        ...INITIAL_CHEST_CARDS_SNAPSHOT.map((c) => ({ ...c }))
-      );
-
-      this.renderAllTabs();
-      const res = await saveMonopolyCloudConfigToSupabase();
-      if (res.ok) {
-        this.showToast('🔄 Đã khôi phục mặc định và đồng bộ lên Supabase!');
-      } else {
-        this.showToast(`❌ Lỗi khi lưu mặc định lên Supabase: ${res.error}`, true);
       }
     });
   }

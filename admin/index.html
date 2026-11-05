@@ -84,9 +84,6 @@
               📤 Nhập JSON
             </label>
             <input id="input-import-json" type="file" accept=".json,application/json" class="hidden" />
-            <button id="btn-reset-defaults" class="admin-btn admin-btn-warning" type="button">
-              🔄 Khôi Phục Mặc Định
-            </button>
             <button id="btn-sign-out" class="admin-btn admin-btn-danger" type="button">
               🚪 Đăng Xuất
             </button>
@@ -123,14 +120,15 @@
                 />
                 <select id="tile-type-filter" class="admin-input">
                   <option value="ALL">Tất cả 40 ô cờ</option>
-                  <option value="PROPERTY">🏠 Ô Đất Mua Được (PROPERTY)</option>
-                  <option value="START">🚩 Ô Khởi Hành (START)</option>
-                  <option value="CHEST">🧰 Rương Kho Báu (CHEST)</option>
-                  <option value="DESERTED_ISLAND">🏝️ Đảo Hoang (DESERTED_ISLAND)</option>
-                  <option value="NETHER_PORTAL">🟣 Cổng Địa Ngục (NETHER_PORTAL)</option>
-                  <option value="FESTIVAL">🎪 Lễ Hội Nhân Đôi (FESTIVAL)</option>
-                  <option value="END_PORTAL">🌌 Cổng The End (END_PORTAL)</option>
-                  <option value="ROYAL_TAX">👑 Thuế Hoàng Gia (ROYAL_TAX)</option>
+                  <option value="PROPERTY">🏠 Ô Đất Mua Được (22 PROPERTY)</option>
+                  <option value="RAILROAD">🚂 Tuyến Đường Sắt (4 RAILROAD)</option>
+                  <option value="UTILITY">⚡ Công Ty Tiện Ích (2 UTILITY)</option>
+                  <option value="CHEST">🧰 Quỹ Cộng Đồng & Cơ Hội (6 CHEST)</option>
+                  <option value="ROYAL_TAX">🏛️ Ô Thuế (2 ROYAL_TAX)</option>
+                  <option value="START">🚩 Ô Khởi Hành (#0 START)</option>
+                  <option value="DESERTED_ISLAND">🏝️ Đảo Cách Ly (#10 DESERTED_ISLAND)</option>
+                  <option value="FESTIVAL">🎉 Lễ Hội Free Parking (#20 FESTIVAL)</option>
+                  <option value="END_PORTAL">🌌 Cổng The End (#30 END_PORTAL)</option>
                 </select>
               </div>
               <div id="tiles-grid-list" class="tiles-grid-list"></div>
@@ -168,13 +166,15 @@
                   <label for="field-tile-type">Loại Ô (`type`)</label>
                   <select id="field-tile-type" class="admin-input">
                     <option value="PROPERTY">PROPERTY (Ô Đất Mua & Xây Nhà)</option>
-                    <option value="START">START (Ô Khởi Hành)</option>
-                    <option value="CHEST">CHEST (Rương Kho Báu)</option>
-                    <option value="DESERTED_ISLAND">DESERTED_ISLAND (Đảo Hoang Nghỉ 1 Lượt)</option>
-                    <option value="NETHER_PORTAL">NETHER_PORTAL (Cổng Địa Ngục 2 Chiều)</option>
-                    <option value="FESTIVAL">FESTIVAL (Lễ Hội Nhân Đôi Thuê)</option>
+                    <option value="RAILROAD">RAILROAD (Tuyến Đường Sắt)</option>
+                    <option value="UTILITY">UTILITY (Công Ty Điện / Thủy Cục)</option>
+                    <option value="CHEST">CHEST (Quỹ Cộng Đồng / Cơ Hội)</option>
+                    <option value="ROYAL_TAX">ROYAL_TAX (Thuế Thu Nhập / Xa Xỉ)</option>
+                    <option value="START">START (Ô Khởi Hành GO)</option>
+                    <option value="DESERTED_ISLAND">DESERTED_ISLAND (Đảo Cách Ly / Trại Giam)</option>
+                    <option value="FESTIVAL">FESTIVAL (Lễ Hội Free Parking)</option>
                     <option value="END_PORTAL">END_PORTAL (Cổng Dịch Chuyển The End)</option>
-                    <option value="ROYAL_TAX">ROYAL_TAX (Thuế Hoàng Gia)</option>
+                    <option value="NETHER_PORTAL">NETHER_PORTAL (Cổng Địa Ngục)</option>
                   </select>
                 </div>
 

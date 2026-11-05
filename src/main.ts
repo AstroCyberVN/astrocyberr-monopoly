@@ -1029,12 +1029,39 @@ class AstroCyberrMonopolyApp {
     const startTileCfg = this.engine.getTileConfig(player.position);
     this.cameraDirector.focusDiceRoll(startStandPos, startTileCfg.outwardRotationY);
 
-    const { d1, d2, total, isDoubles } = this.engine.rollDice();
+    const { d1, d2, total, isDoubles, sentToJailByTripleDoubles } = this.engine.rollDice();
     await this.dice3D.animateRollAndFuseTotal(d1, d2, throwPower, this.gameSpeedMultiplier);
 
     document.getElementById('dice-last-result')!.textContent =
       `🎲 ${d1}+${d2}=${total}${isDoubles ? ' (ĐÔI!)' : ''}`;
     this.renderHUD();
+
+    // Wikipedia Monopoly Rule: Rolling 3 consecutive doubles sends player directly to #10 Jail (Đảo Cách Ly)!
+    if (sentToJailByTripleDoubles) {
+      this.dice3D.clearFusionFX();
+      soundManager.playPayRent();
+      const jailTf = this.islandBoard.getTileStandTransform(10, playerIdx);
+      const jailCfg = this.engine.getTileConfig(10);
+      this.characters3D.placeCharacterAt(
+        player.characterId,
+        jailTf.position,
+        jailCfg.outwardRotationY,
+        jailTf.rotX,
+        jailTf.rotZ,
+        jailTf.scale
+      );
+      this.particles.spawnEndermanPortalParticles(jailTf.position);
+      await this.cameraDirector.focusTileEventCloseUp(
+        jailTf.position,
+        jailCfg.outwardRotationY,
+        this.gameSpeedMultiplier
+      );
+      this.showBottomLeftTilePopup(10);
+      this.renderHUD();
+      await this.delay(650 / this.gameSpeedMultiplier);
+      this.advanceToNextTurn();
+      return;
+    }
 
     // 2. Spawn the Raised Authentic 3D Target Beacon + 9 Iron Blocks above the destination tile!
     const targetTileIdx = (player.position + total) % BOARD_SIZE;
@@ -1279,6 +1306,25 @@ class AstroCyberrMonopolyApp {
           this.animateSinglePlayerCoinDeltaOnHUD(botId, beforeBuy, bot.gold);
         }
       }
+    } else if (decision.type === 'SKIP_ACTION') {
+      const tileCfg = this.engine.getTileConfig(bot.position);
+      const tileState = this.engine.getTileState(bot.position);
+      if (
+        tileState.ownerId === null &&
+        (tileCfg.type === 'PROPERTY' || tileCfg.type === 'RAILROAD' || tileCfg.type === 'UTILITY')
+      ) {
+        const auc = this.engine.runPropertyAuction(bot.position);
+        if (auc.winnerId) {
+          const winner = this.engine.getPlayerById(auc.winnerId);
+          const st = this.engine.getTileState(bot.position);
+          this.islandBoard.updateTileBuilding(
+            bot.position,
+            st.level,
+            winner.color,
+            st.festivalMultiplier
+          );
+        }
+      }
     }
 
     this.renderHUD();
@@ -1477,7 +1523,7 @@ class AstroCyberrMonopolyApp {
             <kbd class="key-hint">Space</kbd>
           </button>
           <button id="act-btn-pass" class="action-btn action-btn-skip">
-            <span>Bỏ Qua</span>
+            <span>🔨 Bỏ Qua & Đấu Giá</span>
             <kbd class="key-hint">Esc</kbd>
           </button>
         </div>
@@ -1501,16 +1547,15 @@ class AstroCyberrMonopolyApp {
         this.advanceToNextTurn();
       };
 
-      const doPass = () => {
-        this.hideActionModal();
-        this.advanceToNextTurn();
+      const doPassToAuction = () => {
+        this.showPropertyAuctionModal(playerId, res.tileIndex);
       };
 
       this.activeModalPrimaryAction = doBuy;
-      this.activeModalSecondaryAction = doPass;
+      this.activeModalSecondaryAction = doPassToAuction;
 
       document.getElementById('act-btn-buy')!.addEventListener('click', doBuy);
-      document.getElementById('act-btn-pass')!.addEventListener('click', doPass);
+      document.getElementById('act-btn-pass')!.addEventListener('click', doPassToAuction);
       return;
     }
 
@@ -1912,17 +1957,32 @@ class AstroCyberrMonopolyApp {
     }
 
     if (cfg.rents && cfg.rents.length > 0) {
-      const currentRent = st.ownerId ? this.engine.calculateRent(cfg.index) : cfg.rents[0];
+      const currentRent = st.mortgaged
+        ? 0
+        : st.ownerId
+          ? this.engine.calculateRent(cfg.index)
+          : cfg.type === 'UTILITY'
+            ? `${cfg.rents[0]}× Xúc xắc`
+            : cfg.rents[0];
+      const rentTableStr =
+        cfg.type === 'UTILITY'
+          ? `${cfg.rents[0]}× / ${cfg.rents[1]}× Xúc xắc`
+          : `$${cfg.rents.join(' / $')}`;
+
       rows.push(`
         <div class="popup-v-row">
           <span class="popup-v-label">Tiền thuê hiện tại</span>
-          <span class="popup-v-val emerald">$${currentRent}${
-            st.festivalMultiplier > 1 ? ` (x${st.festivalMultiplier})` : ''
+          <span class="popup-v-val emerald">${
+            st.mortgaged
+              ? '<span style="color:#f59e0b">📜 ĐANG THẾ CHẤP ($0)</span>'
+              : typeof currentRent === 'number'
+                ? `$${currentRent}${st.festivalMultiplier > 1 ? ` (x${st.festivalMultiplier})` : ''}`
+                : currentRent
           }</span>
         </div>
         <div class="popup-v-row">
           <span class="popup-v-label">Bảng giá thuê</span>
-          <span class="popup-v-val">$${cfg.rents.join(' / $')}</span>
+          <span class="popup-v-val">${rentTableStr}</span>
         </div>
       `);
     }
@@ -1933,7 +1993,32 @@ class AstroCyberrMonopolyApp {
           <span class="popup-v-label">Chủ sở hữu</span>
           <span class="popup-v-val">${owner ? `${owner.emoji} ${owner.name}` : 'Chưa có chủ'}</span>
         </div>
+        <div class="popup-v-row">
+          <span class="popup-v-label">Giá trị Thế chấp (50%)</span>
+          <span class="popup-v-val">$${this.engine.getMortgageValue(cfg.index)} (Chuộc: $${this.engine.getUnmortgageCost(cfg.index)})</span>
+        </div>
       `);
+
+      const activePlayer = this.engine.getCurrentPlayer();
+      if (!activePlayer.isBot && st.ownerId === activePlayer.id) {
+        if (!st.mortgaged) {
+          rows.push(`
+            <div style="margin-top:6px">
+              <button id="btn-popup-mortgage" class="action-btn action-btn-skip" style="width:100%;padding:7px 10px;font-size:12px">
+                📜 Thế Chấp Ngân Hàng (+$${this.engine.getMortgageValue(cfg.index)})
+              </button>
+            </div>
+          `);
+        } else {
+          rows.push(`
+            <div style="margin-top:6px">
+              <button id="btn-popup-unmortgage" class="action-btn action-btn-buy" style="width:100%;padding:7px 10px;font-size:12px">
+                🔓 Giải Chấp Chuộc Đất (-$${this.engine.getUnmortgageCost(cfg.index)})
+              </button>
+            </div>
+          `);
+        }
+      }
     }
 
     if (cfg.rentReason) {
@@ -1949,6 +2034,125 @@ class AstroCyberrMonopolyApp {
 
     bodyEl.innerHTML = rows.join('');
     popup.classList.remove('hidden');
+
+    document.getElementById('btn-popup-mortgage')?.addEventListener('click', () => {
+      const activePlayer = this.engine.getCurrentPlayer();
+      const prevGold = activePlayer.gold;
+      const res = this.engine.mortgageProperty(activePlayer.id, cfg.index);
+      if (res.ok) {
+        soundManager.playCoinChime();
+        this.animateSinglePlayerCoinDeltaOnHUD(activePlayer.id, prevGold, activePlayer.gold);
+        this.showBottomLeftTilePopup(cfg.index);
+      }
+    });
+
+    document.getElementById('btn-popup-unmortgage')?.addEventListener('click', () => {
+      const activePlayer = this.engine.getCurrentPlayer();
+      const prevGold = activePlayer.gold;
+      const res = this.engine.unmortgageProperty(activePlayer.id, cfg.index);
+      if (res.ok) {
+        soundManager.playCoinChime();
+        this.animateSinglePlayerCoinDeltaOnHUD(activePlayer.id, prevGold, activePlayer.gold);
+        this.showBottomLeftTilePopup(cfg.index);
+      }
+    });
+  }
+
+  /**
+   * Wikipedia Monopoly Public Auction Modal when a player passes on buying an unowned property!
+   */
+  private showPropertyAuctionModal(humanPlayerId: string, tileIndex: number): void {
+    const modal = document.getElementById('floating-action-modal')!;
+    const inner = document.getElementById('action-card-inner')!;
+    const human = this.engine.getPlayerById(humanPlayerId);
+    const tileCfg = this.engine.getTileConfig(tileIndex);
+    const listPrice = tileCfg.price ?? 100;
+
+    let currentHumanBid = Math.min(human.gold, Math.max(20, Math.round(listPrice * 0.6)));
+
+    const renderAuctionUI = () => {
+      inner.innerHTML = `
+        <span class="action-card-badge" style="background:#f59e0b;color:#0f172a">
+          🔨 ĐẤU GIÁ CÔNG KHAI • WIKIPEDIA MONOPOLY RULE
+        </span>
+        <h3 class="action-card-title">Đấu Giá: ${tileCfg.icon} ${tileCfg.name}</h3>
+        <p class="action-card-desc">
+          Ô đất bị bỏ qua được đưa ra đấu giá công khai (Giá niêm yết: <strong>$${listPrice}</strong>).<br/>
+          Đặt mức giá của bạn để cạnh tranh cùng các Tỷ Phú AI!
+        </p>
+        <div class="rent-invoice-box">
+          <div class="rent-invoice-row">
+            <span>Mức trả giá của bạn</span>
+            <strong class="emerald-val">$${currentHumanBid}</strong>
+          </div>
+          <div class="rent-invoice-row">
+            <span>Số dư hiện tại</span>
+            <span>$${human.gold}</span>
+          </div>
+        </div>
+        <div class="action-btn-group" style="display:flex;gap:8px;margin-bottom:8px">
+          <button id="auc-btn-plus-10" class="action-btn action-btn-skip" style="flex:1">+$10</button>
+          <button id="auc-btn-plus-25" class="action-btn action-btn-skip" style="flex:1">+$25</button>
+          <button id="auc-btn-plus-50" class="action-btn action-btn-skip" style="flex:1">+$50</button>
+        </div>
+        <div class="action-btn-group">
+          <button id="auc-btn-submit" class="action-btn action-btn-buy">
+            <span>🔨 Chốt Giá Đấu ($${currentHumanBid})</span>
+            <kbd class="key-hint">Space</kbd>
+          </button>
+          <button id="auc-btn-fold" class="action-btn action-btn-skip">
+            <span>Bỏ Cuộc (Nhường AI Đấu Giá)</span>
+            <kbd class="key-hint">Esc</kbd>
+          </button>
+        </div>
+      `;
+
+      document.getElementById('auc-btn-plus-10')?.addEventListener('click', () => {
+        currentHumanBid = Math.min(human.gold, currentHumanBid + 10);
+        renderAuctionUI();
+      });
+      document.getElementById('auc-btn-plus-25')?.addEventListener('click', () => {
+        currentHumanBid = Math.min(human.gold, currentHumanBid + 25);
+        renderAuctionUI();
+      });
+      document.getElementById('auc-btn-plus-50')?.addEventListener('click', () => {
+        currentHumanBid = Math.min(human.gold, currentHumanBid + 50);
+        renderAuctionUI();
+      });
+
+      const finalizeAuction = (humanBidAmount: number) => {
+        const res = this.engine.runPropertyAuction(tileIndex, {
+          [humanPlayerId]: humanBidAmount
+        });
+        if (res.winnerId) {
+          soundManager.playCoinChime();
+          const winner = this.engine.getPlayerById(res.winnerId);
+          const st = this.engine.getTileState(tileIndex);
+          this.islandBoard.updateTileBuilding(
+            tileIndex,
+            st.level,
+            winner.color,
+            st.festivalMultiplier
+          );
+        }
+        this.showBottomLeftTilePopup(tileIndex);
+        this.renderHUD();
+        this.hideActionModal();
+        this.advanceToNextTurn();
+      };
+
+      const doSubmit = () => finalizeAuction(currentHumanBid);
+      const doFold = () => finalizeAuction(0);
+
+      this.activeModalPrimaryAction = doSubmit;
+      this.activeModalSecondaryAction = doFold;
+
+      document.getElementById('auc-btn-submit')!.addEventListener('click', doSubmit);
+      document.getElementById('auc-btn-fold')!.addEventListener('click', doFold);
+    };
+
+    modal.classList.remove('hidden');
+    renderAuctionUI();
   }
 
   private renderHUD(): void {

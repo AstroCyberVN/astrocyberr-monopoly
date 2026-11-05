@@ -33,6 +33,7 @@ export interface TileState {
   ownerId: string | null;
   level: number;
   festivalMultiplier: number;
+  mortgaged?: boolean;
 }
 
 export interface TileResolutionResult {
@@ -145,7 +146,8 @@ export class GameEngine {
       index: t.index,
       ownerId: null,
       level: 0,
-      festivalMultiplier: 1
+      festivalMultiplier: 1,
+      mortgaged: false
     }));
 
     this.addLog(`🎮 Bắt đầu ván mới (${mode}) trên Bản Đồ 40 Ô! Mỗi người nhận $${initialGold}.`);
@@ -212,6 +214,7 @@ export class GameEngine {
     d2: number;
     total: number;
     isDoubles: boolean;
+    sentToJailByTripleDoubles?: boolean;
   } {
     const d1 = forced ? forced[0] : Math.floor(Math.random() * 6) + 1;
     const d2 = forced ? forced[1] : Math.floor(Math.random() * 6) + 1;
@@ -221,15 +224,30 @@ export class GameEngine {
 
     if (isDoubles) {
       this.consecutiveDoubles += 1;
+      if (this.consecutiveDoubles >= 3) {
+        this.consecutiveDoubles = 0;
+        p.position = 10;
+        p.skipTurns = 1;
+        this.addLog(
+          `🚓 VƯỢT TỐC ĐỘ! ${p.emoji} ${p.name} đổ đôi 3 lần liên tiếp (${d1}+${d2}) và bị chuyển thẳng vào #10 Đảo Cách Ly (Jail)!`
+        );
+        return {
+          d1,
+          d2,
+          total: d1 + d2,
+          isDoubles,
+          sentToJailByTripleDoubles: true
+        };
+      }
       this.addLog(
-        `✨ ĐỔ ĐÔI! ${p.emoji} ${p.name} tung được ${d1} + ${d2} = ${d1 + d2} bước (Thưởng thêm lượt)!`
+        `✨ ĐỔ ĐÔI (${this.consecutiveDoubles}/2)! ${p.emoji} ${p.name} tung được ${d1} + ${d2} = ${d1 + d2} bước (Thưởng thêm lượt)!`
       );
     } else {
       this.consecutiveDoubles = 0;
       this.addLog(`🎲 ${p.emoji} ${p.name} tung xúc xắc: ${d1} + ${d2} = ${d1 + d2} bước!`);
     }
 
-    return { d1, d2, total: d1 + d2, isDoubles };
+    return { d1, d2, total: d1 + d2, isDoubles, sentToJailByTripleDoubles: false };
   }
 
   public canTakeExtraDoublesTurn(): boolean {
@@ -314,20 +332,30 @@ export class GameEngine {
 
   public countOwnedRailroads(ownerId: string): number {
     return BOARD_TILES.filter(
-      (t) => t.type === 'RAILROAD' && this.tiles[t.index].ownerId === ownerId
+      (t) =>
+        t.type === 'RAILROAD' &&
+        this.tiles[t.index].ownerId === ownerId &&
+        !this.tiles[t.index].mortgaged
     ).length;
   }
 
   public countOwnedUtilities(ownerId: string): number {
     return BOARD_TILES.filter(
-      (t) => t.type === 'UTILITY' && this.tiles[t.index].ownerId === ownerId
+      (t) =>
+        t.type === 'UTILITY' &&
+        this.tiles[t.index].ownerId === ownerId &&
+        !this.tiles[t.index].mortgaged
     ).length;
+  }
+
+  public getLastDiceTotal(): number {
+    return this.lastDice ? this.lastDice[0] + this.lastDice[1] : 7;
   }
 
   public calculateRent(tileIndex: number): number {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
-    if (!state.ownerId || !cfg.rents) return 0;
+    if (!state.ownerId || state.mortgaged || !cfg.rents) return 0;
 
     if (cfg.type === 'RAILROAD') {
       const count = Math.max(1, Math.min(4, this.countOwnedRailroads(state.ownerId)));
@@ -336,7 +364,12 @@ export class GameEngine {
 
     if (cfg.type === 'UTILITY') {
       const count = Math.max(1, Math.min(2, this.countOwnedUtilities(state.ownerId)));
-      return cfg.rents[count - 1] * state.festivalMultiplier;
+      const factorOrFlat = cfg.rents[count - 1] ?? (count >= 2 ? 10 : 4);
+      // Wikipedia Monopoly rule: Utility rent = Dice Total × 4 (1 owned) or × 10 (both owned)
+      if (factorOrFlat <= 25) {
+        return this.getLastDiceTotal() * factorOrFlat * state.festivalMultiplier;
+      }
+      return factorOrFlat * state.festivalMultiplier;
     }
 
     const levelIdx = Math.max(0, Math.min(3, state.level - 1));
@@ -354,6 +387,16 @@ export class GameEngine {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
     const baseReason = cfg.rentReason || `dừng chân tại khu vực [${cfg.name}]`;
+    if (cfg.type === 'UTILITY' && state.ownerId) {
+      const count = Math.max(1, Math.min(2, this.countOwnedUtilities(state.ownerId)));
+      const mult = cfg.rents?.[count - 1] ?? (count >= 2 ? 10 : 4);
+      const diceSum = this.getLastDiceTotal();
+      return `${baseReason} (Sở hữu ${count}/2 Công ty Tiện Ích: Xúc xắc ${diceSum} × ${mult})`;
+    }
+    if (cfg.type === 'RAILROAD' && state.ownerId) {
+      const count = Math.max(1, Math.min(4, this.countOwnedRailroads(state.ownerId)));
+      return `${baseReason} (Chủ ga sở hữu ${count}/4 Tuyến Đường Sắt)`;
+    }
     if (cfg.type === 'PROPERTY' && state.level > 0) {
       const tier = BUILDING_TIER_NAMES[state.level] || BUILDING_TIER_NAMES[1];
       return `${baseReason} (Công trình: ${tier.icon} ${tier.name} Cấp ${state.level}${
@@ -392,6 +435,52 @@ export class GameEngine {
     return { ok: true };
   }
 
+  /**
+   * Wikipedia Monopoly "Even Building" rule:
+   * When a player owns a full color group (or multiple tiles in the same color group),
+   * buildings must be constructed evenly across the group (difference <= 1 level).
+   */
+  public canUpgradePropertyEvenly(
+    playerId: string,
+    tileIndex: number
+  ): { allowed: boolean; reason?: string } {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    if (cfg.type !== 'PROPERTY') {
+      return { allowed: false, reason: 'Chỉ có thể nâng cấp nhà trên Ô Đất.' };
+    }
+    if (state.ownerId !== playerId) {
+      return { allowed: false, reason: 'Bạn không phải chủ sở hữu ô đất này.' };
+    }
+    if (state.mortgaged) {
+      return { allowed: false, reason: 'Ô đất đang thế chấp, hãy giải chấp trước khi xây nhà.' };
+    }
+    if (state.level >= 4) {
+      return { allowed: false, reason: 'Công trình đã đạt cấp tối đa (Lâu Đài Vương Miện).' };
+    }
+
+    if (cfg.colorGroup && this.ownsFullColorGroup(playerId, cfg.colorGroup)) {
+      const groupTiles = BOARD_TILES.filter(
+        (t) => t.type === 'PROPERTY' && t.colorGroup === cfg.colorGroup
+      );
+      if (groupTiles.some((t) => this.tiles[t.index].mortgaged)) {
+        return {
+          allowed: false,
+          reason: 'Có ô đất cùng cụm màu đang thế chấp, không thể nâng cấp nhà!'
+        };
+      }
+      const minLevel = Math.min(...groupTiles.map((t) => this.tiles[t.index].level));
+      if (state.level > minLevel) {
+        return {
+          allowed: false,
+          reason: `Luật Xây Nhà Đồng Đều (Even Building): Phải nâng cấp các ô cùng màu đang ở Cấp ${minLevel} trước!`
+        };
+      }
+    }
+
+    return { allowed: true };
+  }
+
   public upgradeProperty(
     playerId: string,
     tileIndex = this.getPlayerById(playerId).position
@@ -400,18 +489,9 @@ export class GameEngine {
     const cfg = this.getTileConfig(tileIndex);
     const state = this.getTileState(tileIndex);
 
-    if (cfg.type !== 'PROPERTY') {
-      return { ok: false, newLevel: state.level, reason: 'Chỉ có thể nâng cấp nhà trên Ô Đất.' };
-    }
-    if (state.ownerId !== player.id) {
-      return { ok: false, newLevel: state.level, reason: 'Bạn không phải chủ sở hữu ô đất này.' };
-    }
-    if (state.level >= 4) {
-      return {
-        ok: false,
-        newLevel: state.level,
-        reason: 'Công trình đã đạt cấp tối đa (Lâu Đài Vương Miện).'
-      };
+    const evenCheck = this.canUpgradePropertyEvenly(playerId, tileIndex);
+    if (!evenCheck.allowed) {
+      return { ok: false, newLevel: state.level, reason: evenCheck.reason };
     }
 
     const cost = this.getEffectiveUpgradeCost(playerId, tileIndex);
@@ -430,10 +510,155 @@ export class GameEngine {
 
     this.addLog(
       `⬆️ ${player.emoji} ${player.name} nâng cấp [${cfg.name}] lên Cấp ${state.level} (${tierLabel}) (-$${cost}${
-        player.characterId === 'steve' ? ' • Nội tại Steve -15%' : ''
+        player.characterId === 'steve' ? ` • Nội tại Steve -${GAME_RULES_CONFIG.steveUpgradeDiscountPct}%` : ''
       })!`
     );
     return { ok: true, newLevel: state.level };
+  }
+
+  /**
+   * Wikipedia Monopoly Mortgage (50% of purchase price) & Unmortgage (55% = 50% + 10% interest)
+   */
+  public getMortgageValue(tileIndex: number): number {
+    const cfg = this.getTileConfig(tileIndex);
+    return Math.round((cfg.price ?? 100) * 0.5);
+  }
+
+  public getUnmortgageCost(tileIndex: number): number {
+    return Math.round(this.getMortgageValue(tileIndex) * 1.1);
+  }
+
+  public mortgageProperty(
+    playerId: string,
+    tileIndex: number
+  ): { ok: boolean; mortgageValue: number; newGold: number; reason?: string } {
+    const player = this.getPlayerById(playerId);
+    const state = this.getTileState(tileIndex);
+    const cfg = this.getTileConfig(tileIndex);
+
+    if (state.ownerId !== playerId) {
+      return { ok: false, mortgageValue: 0, newGold: player.gold, reason: 'Không phải đất của bạn.' };
+    }
+    if (state.mortgaged) {
+      return { ok: false, mortgageValue: 0, newGold: player.gold, reason: 'Ô này đã được thế chấp.' };
+    }
+
+    const upgradeRefund =
+      cfg.type === 'PROPERTY' && state.level > 1
+        ? Math.round((state.level - 1) * (cfg.upgradeCost ?? 50) * 0.5)
+        : 0;
+    const mortgageValue = this.getMortgageValue(tileIndex) + upgradeRefund;
+
+    state.level = 1;
+    state.mortgaged = true;
+    player.gold += mortgageValue;
+
+    this.addLog(
+      `📜 THẾ CHẤP! ${player.emoji} ${player.name} thế chấp [${cfg.name}] cho Ngân Hàng nhận +$${mortgageValue} (Tạm ngưng thu tiền thuê).`
+    );
+    return { ok: true, mortgageValue, newGold: player.gold };
+  }
+
+  public unmortgageProperty(
+    playerId: string,
+    tileIndex: number
+  ): { ok: boolean; unmortgageCost: number; newGold: number; reason?: string } {
+    const player = this.getPlayerById(playerId);
+    const state = this.getTileState(tileIndex);
+    const cfg = this.getTileConfig(tileIndex);
+
+    if (state.ownerId !== playerId || !state.mortgaged) {
+      return {
+        ok: false,
+        unmortgageCost: 0,
+        newGold: player.gold,
+        reason: 'Ô đất không ở trạng thái thế chấp.'
+      };
+    }
+
+    const cost = this.getUnmortgageCost(tileIndex);
+    if (player.gold < cost) {
+      return {
+        ok: false,
+        unmortgageCost: cost,
+        newGold: player.gold,
+        reason: 'Không đủ $ để giải chấp (gồm 10% lãi ngân hàng).'
+      };
+    }
+
+    player.gold -= cost;
+    state.mortgaged = false;
+    this.addLog(
+      `🔓 GIẢI CHẤP! ${player.emoji} ${player.name} thanh toán -$${cost} (gồm 10% lãi) để chuộc lại [${cfg.name}]!`
+    );
+    return { ok: true, unmortgageCost: cost, newGold: player.gold };
+  }
+
+  /**
+   * Wikipedia Monopoly Public Auction when a player declines to buy an unowned property!
+   */
+  public runPropertyAuction(
+    tileIndex: number,
+    humanBids?: Record<string, number>
+  ): {
+    winnerId: string | null;
+    winnerName?: string;
+    winningBid: number;
+  } {
+    const cfg = this.getTileConfig(tileIndex);
+    const state = this.getTileState(tileIndex);
+    if (state.ownerId !== null) {
+      return { winnerId: null, winningBid: 0 };
+    }
+
+    const listPrice = cfg.price ?? 100;
+    let bestBidder: PlayerState | null = null;
+    let highestBid = 0;
+
+    for (const p of this.players) {
+      if (p.bankrupt || p.gold < 20) continue;
+
+      let candidateBid = 0;
+      if (humanBids && typeof humanBids[p.id] === 'number') {
+        candidateBid = Math.min(p.gold, Math.floor(humanBids[p.id]));
+      } else if (p.isBot) {
+        const ownsSameGroup =
+          cfg.colorGroup &&
+          BOARD_TILES.some(
+            (t) => t.colorGroup === cfg.colorGroup && this.tiles[t.index].ownerId === p.id
+          );
+        const valuationFactor = ownsSameGroup ? 0.95 : 0.75;
+        const maxWilling = Math.min(p.gold - 40, Math.round(listPrice * valuationFactor));
+        if (maxWilling >= 20) {
+          candidateBid = maxWilling;
+        }
+      }
+
+      if (candidateBid > highestBid && candidateBid <= p.gold) {
+        highestBid = candidateBid;
+        bestBidder = p;
+      }
+    }
+
+    if (!bestBidder || highestBid < 10) {
+      this.addLog(`🔨 Phiên đấu giá [${cfg.name}] kết thúc mà không có ai trả giá.`);
+      return { winnerId: null, winningBid: 0 };
+    }
+
+    bestBidder.gold -= highestBid;
+    state.ownerId = bestBidder.id;
+    state.level = 1;
+    state.mortgaged = false;
+
+    this.addLog(
+      `🔨 ĐẤU GIÁ THÀNH CÔNG! ${bestBidder.emoji} ${bestBidder.name} đấu giá thắng [${cfg.name}] với mức $${highestBid} (Giá gốc $${listPrice})!`
+    );
+
+    return {
+      winnerId: bestBidder.id,
+      winnerName: bestBidder.name,
+      winningBid: highestBid
+    };
   }
 
   /**
@@ -793,16 +1018,27 @@ export class GameEngine {
 
         if (state.ownerId === player.id) {
           if (cfg.type === 'PROPERTY' && state.level < 4) {
+            const evenCheck = this.canUpgradePropertyEvenly(player.id, tileIndex);
             const upCost = this.getEffectiveUpgradeCost(player.id, tileIndex);
-            if (player.gold >= upCost) {
+            if (evenCheck.allowed && player.gold >= upCost) {
               return {
                 action: 'CAN_UPGRADE_PROPERTY',
                 tileIndex,
                 tileName: cfg.name,
                 amount: upCost,
                 message: `Chào mừng về lãnh địa! Nâng cấp [${cfg.name}] lên Cấp ${state.level + 1} với $${upCost}${
-                  player.characterId === 'steve' ? ' (Đã giảm 15% nội tại Steve)' : ''
+                  player.characterId === 'steve'
+                    ? ` (Đã giảm ${GAME_RULES_CONFIG.steveUpgradeDiscountPct}% nội tại Steve)`
+                    : ''
                 }?`
+              };
+            }
+            if (!evenCheck.allowed && evenCheck.reason) {
+              return {
+                action: 'MAX_LEVEL_OWNED',
+                tileIndex,
+                tileName: cfg.name,
+                message: evenCheck.reason
               };
             }
           }
@@ -815,6 +1051,17 @@ export class GameEngine {
         }
 
         const owner = this.getPlayerById(state.ownerId);
+        if (state.mortgaged) {
+          this.addLog(
+            `📜 ${player.emoji} ${player.name} dừng tại [${cfg.name}] của ${owner.name}, nhưng ô đất đang Thế Chấp nên được miễn tiền thuê!`
+          );
+          return {
+            action: 'MAX_LEVEL_OWNED',
+            tileIndex,
+            tileName: cfg.name,
+            message: `Ô [${cfg.name}] của ${owner.name} đang Thế Chấp Ngân Hàng nên được miễn thu tiền thuê!`
+          };
+        }
         const rent = this.calculateRent(tileIndex);
         const rentReason = this.getFormattedRentReason(tileIndex);
         const canAffordRent = player.gold >= rent;

@@ -13,7 +13,7 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(BOARD_TILES[10].type).toBe('DESERTED_ISLAND');
     expect(BOARD_TILES[20].type).toBe('FESTIVAL');
     expect(BOARD_TILES[30].type).toBe('END_PORTAL');
-    expect(BOARD_TILES[33].type).toBe('NETHER_PORTAL');
+    expect(BOARD_TILES[38].type).toBe('ROYAL_TAX');
 
     expect(BOARD_TILES[5].outwardRotationY).toBeCloseTo(0);
     expect(BOARD_TILES[15].outwardRotationY).toBeCloseTo(-Math.PI / 2);
@@ -21,7 +21,13 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     expect(BOARD_TILES[35].outwardRotationY).toBeCloseTo(Math.PI / 2);
 
     const properties = BOARD_TILES.filter((t) => t.type === 'PROPERTY');
-    expect(properties.length).toBe(23);
+    expect(properties.length).toBe(22);
+    const railroads = BOARD_TILES.filter((t) => t.type === 'RAILROAD');
+    expect(railroads.length).toBe(4);
+    const utilities = BOARD_TILES.filter((t) => t.type === 'UTILITY');
+    expect(utilities.length).toBe(2);
+    const chests = BOARD_TILES.filter((t) => t.type === 'CHEST');
+    expect(chests.length).toBe(6);
     const colorGroups = new Set(properties.map((t) => t.colorGroup));
     expect(colorGroups.size).toBe(8);
   });
@@ -70,8 +76,8 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     engine.buyProperty(p0.id, 39);
     expect(p0.gold).toBe(50);
 
-    // Land on Luxury Tax #36 (-$100) -> gold drops to -$50 -> triggers auto-liquidation of Tile 39
-    p0.position = 36;
+    // Land on Luxury Tax #38 (-$100) -> gold drops to -$50 -> triggers auto-liquidation of Tile 39
+    p0.position = 38;
     engine.resolveTileLanding(p0.id);
 
     expect(p0.bankrupt).toBe(false);
@@ -205,5 +211,60 @@ describe('AstroCyberr Monopoly v4.0 — Real Monopoly 40-Tile Config, Rent Reaso
     const sold = engine.liquidateProperty(alex.id, 1);
     expect(sold.ok).toBe(true);
     expect(engine.getTileState(1).ownerId).toBeNull();
+  });
+
+  it('enforces Wikipedia Monopoly rules: 4 Railroads ($25/$50/$100/$200), 2 Utilities (4x/10x dice), Even Building, Mortgage (50%/55%), Auction, and 3x Doubles to Jail', () => {
+    const engine = new GameEngine('PASS_AND_PLAY', 2);
+    const [p0, p1] = engine.getPlayers();
+    p0.gold = 3000;
+
+    // 1. 4 Railroads rent progression: $25 -> $50 -> $100 -> $200
+    engine.buyProperty(p0.id, 5);
+    expect(engine.calculateRent(5)).toBe(25);
+    engine.buyProperty(p0.id, 15);
+    expect(engine.calculateRent(5)).toBe(50);
+    engine.buyProperty(p0.id, 25);
+    expect(engine.calculateRent(5)).toBe(100);
+    engine.buyProperty(p0.id, 35);
+    expect(engine.calculateRent(5)).toBe(200);
+
+    // 2. 2 Utilities rent: 4x dice (1 owned) and 10x dice (2 owned)
+    engine.rollDice([3, 5]); // total = 8
+    engine.buyProperty(p0.id, 12);
+    expect(engine.calculateRent(12)).toBe(8 * 4);
+    engine.buyProperty(p0.id, 28);
+    expect(engine.calculateRent(12)).toBe(8 * 10);
+
+    // 3. Even Building rule on Brown set (#1 and #3)
+    engine.buyProperty(p0.id, 1);
+    engine.buyProperty(p0.id, 3);
+    expect(engine.upgradeProperty(p0.id, 1).ok).toBe(true); // #1 is now Level 2, #3 is Level 1
+    // Cannot upgrade #1 to Level 3 while #3 is still Level 1!
+    expect(engine.upgradeProperty(p0.id, 1).ok).toBe(false);
+    expect(engine.upgradeProperty(p0.id, 3).ok).toBe(true); // #3 is now Level 2
+    expect(engine.upgradeProperty(p0.id, 1).ok).toBe(true); // Now #1 can reach Level 3!
+
+    // 4. Mortgage (50%) & Unmortgage (55%)
+    const mortRes = engine.mortgageProperty(p0.id, 5); // Railroad #5 ($200 -> +$100)
+    expect(mortRes.ok).toBe(true);
+    expect(mortRes.mortgageValue).toBe(100);
+    expect(engine.calculateRent(5)).toBe(0);
+    const unmortRes = engine.unmortgageProperty(p0.id, 5); // -$110
+    expect(unmortRes.ok).toBe(true);
+    expect(unmortRes.unmortgageCost).toBe(110);
+
+    // 5. Public Auction on unowned Tile #6
+    const aucRes = engine.runPropertyAuction(6, { [p1.id]: 95 });
+    expect(aucRes.winnerId).toBe(p1.id);
+    expect(aucRes.winningBid).toBe(95);
+    expect(engine.getTileState(6).ownerId).toBe(p1.id);
+
+    // 6. 3 Consecutive Doubles -> Sent to #10 Jail
+    engine.rollDice([2, 2]);
+    engine.rollDice([3, 3]);
+    const thirdDouble = engine.rollDice([6, 6]);
+    expect(thirdDouble.sentToJailByTripleDoubles).toBe(true);
+    expect(p0.position).toBe(10);
+    expect(p0.skipTurns).toBe(1);
   });
 });
