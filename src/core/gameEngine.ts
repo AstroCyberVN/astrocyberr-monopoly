@@ -7,6 +7,7 @@ import {
   CharacterId,
   ChestCard,
   ColorGroupId,
+  GAME_RULES_CONFIG,
   LocomotionType,
   TileConfig
 } from './boardData';
@@ -242,22 +243,26 @@ export class GameEngine {
   }
 
   public getStartBonus(player: PlayerState): number {
-    // FEAT-03: Alex's passive ("Nhà Thám Hiểm") grants +$40 extra when passing Start (+$240 total)
-    return player.characterId === 'alex' ? 240 : 200;
+    // FEAT-03: Alex's passive ("Nhà Thám Hiểm") grants extra bonus when passing Start
+    return player.characterId === 'alex'
+      ? GAME_RULES_CONFIG.alexStartBonus
+      : GAME_RULES_CONFIG.startBonus;
   }
 
   public getEffectiveUpgradeCost(playerId: string, tileIndex: number): number {
     const player = this.getPlayerById(playerId);
     const cfg = this.getTileConfig(tileIndex);
     const baseCost = cfg.upgradeCost ?? 80;
-    // FEAT-03: Steve's passive ("Thợ Xây Lành Nghề") reduces building upgrade cost by 15%
-    return player.characterId === 'steve' ? Math.round(baseCost * 0.85) : baseCost;
+    // FEAT-03: Steve's passive ("Thợ Xây Lành Nghề") reduces building upgrade cost
+    const factor = 1 - GAME_RULES_CONFIG.steveUpgradeDiscountPct / 100;
+    return player.characterId === 'steve' ? Math.round(baseCost * factor) : baseCost;
   }
 
   public getEffectiveTaxAmount(playerId: string, baseTax: number): number {
     const player = this.getPlayerById(playerId);
-    // FEAT-03: Creeper's passive ("Giáp Thuốc Nổ") reduces Royal/Luxury Tax by 20%
-    return player.characterId === 'creeper' ? Math.round(baseTax * 0.8) : baseTax;
+    // FEAT-03: Creeper's passive ("Giáp Thuốc Nổ") reduces Royal/Luxury Tax
+    const factor = 1 - GAME_RULES_CONFIG.creeperTaxDiscountPct / 100;
+    return player.characterId === 'creeper' ? Math.round(baseTax * factor) : baseTax;
   }
 
   public stepPlayerOneTile(playerId: string): {
@@ -448,7 +453,7 @@ export class GameEngine {
     const basePrice = cfg.price ?? 100;
     const investedUpgrades =
       cfg.type === 'PROPERTY' ? Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 80) : 0;
-    return Math.round((basePrice + investedUpgrades) * 1.8);
+    return Math.round((basePrice + investedUpgrades) * GAME_RULES_CONFIG.buyoutMultiplier);
   }
 
   public buyoutOpponentProperty(
@@ -521,7 +526,9 @@ export class GameEngine {
     const basePrice = cfg.price ?? 100;
     const upgradeTotal =
       cfg.type === 'PROPERTY' ? Math.max(0, state.level - 1) * (cfg.upgradeCost ?? 60) : 0;
-    return Math.round((basePrice + upgradeTotal) * 0.75);
+    return Math.round(
+      (basePrice + upgradeTotal) * (GAME_RULES_CONFIG.liquidationRatePct / 100)
+    );
   }
 
   public getPlayerLiquidatableProperties(playerId: string): LiquidatablePropertyInfo[] {
@@ -588,7 +595,8 @@ export class GameEngine {
     const passedStart = target !== oldPos && (target === 0 || target < oldPos);
     player.position = target;
 
-    const enderBonus = player.characterId === 'enderman' ? 50 : 0;
+    const enderBonus =
+      player.characterId === 'enderman' ? GAME_RULES_CONFIG.endermanPortalBonus : 0;
     if (enderBonus > 0) {
       player.gold += enderBonus;
     }
@@ -629,7 +637,8 @@ export class GameEngine {
 
     const passedStart = oldPos + overworldSteps >= BOARD_SIZE;
     player.position = target;
-    const enderBonus = player.characterId === 'enderman' ? 50 : 0;
+    const enderBonus =
+      player.characterId === 'enderman' ? GAME_RULES_CONFIG.endermanPortalBonus : 0;
     player.gold += 120 + enderBonus; // Piglin Bastion Gold Bonus (+ Enderman Passive)
 
     if (passedStart) {

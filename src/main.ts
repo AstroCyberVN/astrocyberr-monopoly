@@ -8,10 +8,7 @@ import {
   BUILDING_TIER_NAMES,
   CHARACTER_CONFIGS,
   COLOR_GROUP_ORDER,
-  CharacterId,
-  getExportableTilesSpecArray,
-  resetBoardTilesToDefault,
-  updateBoardTileConfigInPlace
+  CharacterId
 } from './core/boardData';
 import {
   ConfirmedRentPaymentResult,
@@ -27,6 +24,10 @@ import { ChibiCharacters3D } from './scene/ChibiCharacters3D';
 import { Dice3D } from './scene/Dice3D';
 import { CameraDirector } from './scene/CameraDirector';
 import { RoomSync } from './net/RoomSync';
+import {
+  fetchAndApplyMonopolyCloudConfig,
+  subscribeMonopolyCloudConfigRealtime
+} from './lib/supabaseConfigSync';
 
 /**
  * Draws a cute 3D Isometric Voxel Grass Block with the Chibi character standing on top of it
@@ -158,15 +159,12 @@ class AstroCyberrMonopolyApp {
   private sunLight!: THREE.DirectionalLight;
   private timeOfDayPhase: 'DAY' | 'SUNSET' | 'NIGHT' = 'DAY';
 
-  // FEAT-05: Owner-Only Admin Studio State
-  private isAdminUnlocked = false;
-  private versionClickCount = 0;
-
   constructor() {
     this.initThreeScene();
     this.bindUIEvents();
     this.syncAllCharactersToBoard();
     this.renderHUD();
+    this.initSupabaseLiveConfigSync();
     this.startRenderLoop();
   }
 
@@ -549,13 +547,6 @@ class AstroCyberrMonopolyApp {
         return;
       }
 
-      // FEAT-05: Secret Owner Shortcut (Ctrl + Shift + E) to unlock & open the Admin 40-Tile Studio
-      if (e.ctrlKey && e.shiftKey && (e.key === 'e' || e.key === 'E') && !e.repeat) {
-        e.preventDefault();
-        this.unlockAndOpenAdminStudio();
-        return;
-      }
-
       // FEAT-01: Press 'B' in Rent Modal to execute Hostile Buyout!
       if ((e.key === 'b' || e.key === 'B') && !e.repeat && this.activeModalBuyoutAction) {
         e.preventDefault();
@@ -677,9 +668,6 @@ class AstroCyberrMonopolyApp {
             : 'DAY';
       this.setEnvironmentTimeOfDay(nextPhase);
     });
-
-    // FEAT-05: Admin Studio Setup (Unlocked via ?admin=1, localStorage flag, Ctrl+Shift+E, or 3x clicking v4.0 badge)
-    this.setupOwnerAdminTileStudio();
 
     document.getElementById('btn-close-tile-popup')!.addEventListener('click', () => {
       document.getElementById('tile-popup-bottom-left')!.classList.add('hidden');
@@ -2103,205 +2091,25 @@ class AstroCyberrMonopolyApp {
   }
 
   /**
-   * FEAT-05: Owner-Only 40-Tile Studio & JSON Exporter
-   * Protected by Method 1: WebCrypto SHA-256 Passcode Hash + Secret Shortcut (Ctrl+Shift+E)
+   * Connects to Supabase Database + Realtime (`public.monopoly_config`) so any configuration
+   * saved on the standalone `/admin` console automatically updates the 3D board & rules!
    */
-  private static readonly OWNER_PIN_SHA256_HASH =
-    '59c01efdcf1b63e7709325d63183f1b0e03e01c8afca97a49904919e0b942bd2';
-
-  private async computeSha256Hex(rawText: string): Promise<string> {
-    const encoded = new TextEncoder().encode(rawText);
-    const hashBuffer = await window.crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  private setupOwnerAdminTileStudio(): void {
-    const savedHash = window.sessionStorage.getItem('astrocyberr_owner_sha256');
-    if (savedHash === AstroCyberrMonopolyApp.OWNER_PIN_SHA256_HASH) {
-      this.isAdminUnlocked = true;
-      document.getElementById('btn-open-admin-studio')?.classList.remove('hidden');
-    }
-
-    // Secret 3-click on the "v4.0" version badge inside Settings Popover triggers SHA-256 PIN Gate
-    const versionBadge = document.querySelector('.popover-version');
-    versionBadge?.addEventListener('click', () => {
-      this.versionClickCount += 1;
-      if (this.versionClickCount >= 3) {
-        this.versionClickCount = 0;
-        this.unlockAndOpenAdminStudio();
-      }
-    });
-
-    document.getElementById('btn-open-admin-studio')?.addEventListener('click', () => {
-      this.unlockAndOpenAdminStudio();
-    });
-
-    document.getElementById('btn-close-pin-gate')?.addEventListener('click', () => {
-      document.getElementById('admin-pin-gate-modal')?.classList.add('hidden');
-    });
-
-    const verifyPinAndOpen = async () => {
-      const pinInput = document.getElementById('admin-pin-input') as HTMLInputElement | null;
-      const errEl = document.getElementById('admin-pin-error');
-      if (!pinInput) return;
-
-      const digest = await this.computeSha256Hex(pinInput.value.trim());
-      if (digest === AstroCyberrMonopolyApp.OWNER_PIN_SHA256_HASH) {
-        this.isAdminUnlocked = true;
-        window.sessionStorage.setItem('astrocyberr_owner_sha256', digest);
-        pinInput.value = '';
-        if (errEl) errEl.style.display = 'none';
-        document.getElementById('admin-pin-gate-modal')?.classList.add('hidden');
-        document.getElementById('btn-open-admin-studio')?.classList.remove('hidden');
-        document.getElementById('admin-tile-editor-modal')?.classList.remove('hidden');
-        soundManager.playCoinChime();
-      } else {
-        soundManager.playPayRent();
-        if (errEl) errEl.style.display = 'block';
-      }
-    };
-
-    document.getElementById('btn-submit-pin-gate')?.addEventListener('click', () => {
-      verifyPinAndOpen();
-    });
-
-    document.getElementById('admin-pin-input')?.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        verifyPinAndOpen();
-      }
-    });
-
-    document.getElementById('btn-close-admin-studio')?.addEventListener('click', () => {
-      document.getElementById('admin-tile-editor-modal')?.classList.add('hidden');
-    });
-
-    document.getElementById('btn-admin-lock-studio')?.addEventListener('click', () => {
-      this.isAdminUnlocked = false;
-      window.sessionStorage.removeItem('astrocyberr_owner_sha256');
-      document.getElementById('btn-open-admin-studio')?.classList.add('hidden');
-      document.getElementById('admin-tile-editor-modal')?.classList.add('hidden');
-    });
-
-    const selectEl = document.getElementById('admin-select-tile') as HTMLSelectElement | null;
-    if (!selectEl) return;
-
-    const populateSelect = (selectedIdx = 0) => {
-      selectEl.innerHTML = BOARD_TILES.map(
-        (t) => `<option value="${t.index}">#${t.index} ${t.icon} ${t.name} (${t.type})</option>`
-      ).join('');
-      selectEl.value = `${selectedIdx}`;
-    };
-
-    const loadTileIntoForm = (idx: number) => {
-      const t = BOARD_TILES[idx];
-      if (!t) return;
-      (document.getElementById('admin-tile-name') as HTMLInputElement).value = t.name;
-      (document.getElementById('admin-tile-icon') as HTMLInputElement).value = t.icon;
-      (document.getElementById('admin-tile-price') as HTMLInputElement).value =
-        typeof t.price === 'number' ? `${t.price}` : '';
-      (document.getElementById('admin-tile-upgrade') as HTMLInputElement).value =
-        typeof t.upgradeCost === 'number' ? `${t.upgradeCost}` : '';
-      (document.getElementById('admin-tile-color') as HTMLInputElement).value = t.colorHex;
-      (document.getElementById('admin-rent-0') as HTMLInputElement).value = t.rents
-        ? `${t.rents[0]}`
-        : '';
-      (document.getElementById('admin-rent-1') as HTMLInputElement).value = t.rents
-        ? `${t.rents[1]}`
-        : '';
-      (document.getElementById('admin-rent-2') as HTMLInputElement).value = t.rents
-        ? `${t.rents[2]}`
-        : '';
-      (document.getElementById('admin-rent-3') as HTMLInputElement).value = t.rents
-        ? `${t.rents[3]}`
-        : '';
-      (document.getElementById('admin-tile-reason') as HTMLInputElement).value =
-        t.rentReason ?? '';
-      (document.getElementById('admin-tile-desc') as HTMLTextAreaElement).value = t.description;
-    };
-
-    populateSelect(0);
-    loadTileIntoForm(0);
-
-    selectEl.addEventListener('change', () => {
-      loadTileIntoForm(Number(selectEl.value));
-    });
-
-    document.getElementById('btn-admin-save-tile')?.addEventListener('click', () => {
-      const idx = Number(selectEl.value);
-      const name = (document.getElementById('admin-tile-name') as HTMLInputElement).value.trim();
-      const icon = (document.getElementById('admin-tile-icon') as HTMLInputElement).value.trim();
-      const priceVal = (document.getElementById('admin-tile-price') as HTMLInputElement).value;
-      const upVal = (document.getElementById('admin-tile-upgrade') as HTMLInputElement).value;
-      const colorHex = (document.getElementById('admin-tile-color') as HTMLInputElement).value.trim();
-      const r0 = Number((document.getElementById('admin-rent-0') as HTMLInputElement).value);
-      const r1 = Number((document.getElementById('admin-rent-1') as HTMLInputElement).value);
-      const r2 = Number((document.getElementById('admin-rent-2') as HTMLInputElement).value);
-      const r3 = Number((document.getElementById('admin-rent-3') as HTMLInputElement).value);
-      const rentReason = (document.getElementById('admin-tile-reason') as HTMLInputElement).value.trim();
-      const description = (document.getElementById('admin-tile-desc') as HTMLTextAreaElement).value.trim();
-
-      const hasRents = !Number.isNaN(r0) && r0 > 0;
-      updateBoardTileConfigInPlace(idx, {
-        name: name || BOARD_TILES[idx].name,
-        icon: icon || BOARD_TILES[idx].icon,
-        colorHex: colorHex || BOARD_TILES[idx].colorHex,
-        price: priceVal !== '' ? Number(priceVal) : undefined,
-        upgradeCost: upVal !== '' ? Number(upVal) : undefined,
-        rents: hasRents ? [r0, r1 || r0, r2 || r1 || r0, r3 || r2 || r0] : undefined,
-        rentReason: rentReason || undefined,
-        description: description || BOARD_TILES[idx].description
+  private initSupabaseLiveConfigSync(): void {
+    fetchAndApplyMonopolyCloudConfig()
+      .then((cloud) => {
+        if (cloud) {
+          this.syncAllBuildingsToBoard();
+          this.renderHUD();
+        }
+      })
+      .catch(() => {
+        // Fallback to local default config if offline
       });
 
-      const st = this.engine.getTileState(idx);
-      const ownerColor = st.ownerId ? this.engine.getPlayerById(st.ownerId).color : null;
-      this.islandBoard.refreshSingleTileVisual(idx, ownerColor, st.festivalMultiplier);
-      populateSelect(idx);
-      this.showBottomLeftTilePopup(idx);
-      soundManager.playCoinChime();
-    });
-
-    document.getElementById('btn-admin-export-json')?.addEventListener('click', () => {
-      const specs = getExportableTilesSpecArray();
-      const jsonBlob = new Blob([JSON.stringify(specs, null, 2)], {
-        type: 'application/json;charset=utf-8'
-      });
-      const url = URL.createObjectURL(jsonBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'astrocyberr-tiles-config.json';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      soundManager.playCoinChime();
-    });
-
-    document.getElementById('btn-admin-reset-default')?.addEventListener('click', () => {
-      resetBoardTilesToDefault();
+    subscribeMonopolyCloudConfigRealtime(() => {
       this.syncAllBuildingsToBoard();
-      populateSelect(Number(selectEl.value));
-      loadTileIntoForm(Number(selectEl.value));
-      soundManager.playCoinChime();
+      this.renderHUD();
     });
-  }
-
-  private unlockAndOpenAdminStudio(): void {
-    document.getElementById('settings-popover')?.classList.add('hidden');
-    if (this.isAdminUnlocked) {
-      document.getElementById('admin-tile-editor-modal')?.classList.remove('hidden');
-      soundManager.playCoinChime();
-      return;
-    }
-
-    const pinModal = document.getElementById('admin-pin-gate-modal');
-    const pinInput = document.getElementById('admin-pin-input') as HTMLInputElement | null;
-    const errEl = document.getElementById('admin-pin-error');
-    if (errEl) errEl.style.display = 'none';
-    pinModal?.classList.remove('hidden');
-    window.setTimeout(() => pinInput?.focus(), 60);
   }
 
   private delay(ms: number): Promise<void> {

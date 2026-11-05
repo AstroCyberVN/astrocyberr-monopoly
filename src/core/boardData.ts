@@ -28,6 +28,32 @@ export type CharacterId = 'steve' | 'alex' | 'creeper' | 'enderman';
 
 export type LocomotionType = 'PARABOLA_HOP' | 'TNT_EXPLOSION' | 'ENDER_TELEPORT';
 
+export interface MonopolyRulesConfig {
+  initialGold: number;
+  startBonus: number;
+  alexStartBonus: number;
+  steveUpgradeDiscountPct: number;
+  creeperTaxDiscountPct: number;
+  endermanPortalBonus: number;
+  liquidationRatePct: number;
+  buyoutMultiplier: number;
+}
+
+export const DEFAULT_GAME_RULES_CONFIG: MonopolyRulesConfig = {
+  initialGold: 1500,
+  startBonus: 200,
+  alexStartBonus: 240,
+  steveUpgradeDiscountPct: 15,
+  creeperTaxDiscountPct: 20,
+  endermanPortalBonus: 50,
+  liquidationRatePct: 75,
+  buyoutMultiplier: 1.8
+};
+
+export const GAME_RULES_CONFIG: MonopolyRulesConfig = {
+  ...DEFAULT_GAME_RULES_CONFIG
+};
+
 export interface CharacterConfig {
   id: CharacterId;
   name: string;

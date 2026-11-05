@@ -12,6 +12,7 @@
     "models:generate": "node scripts/generate_blockbench_models.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "canvas-confetti": "^1.9.3",
     "gsap": "^3.12.5",
     "three": "^0.170.0"

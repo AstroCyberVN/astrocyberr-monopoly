@@ -169,11 +169,6 @@
                 <div class="toggle-knob"></div>
               </div>
             </div>
-
-            <!-- Owner-Only Admin Tile Config Studio Trigger (FEAT-05, hidden for normal players) -->
-            <button id="btn-open-admin-studio" class="admin-studio-trigger-btn hidden">
-              🛠️ Mở Studio Cấu Hình 40 Ô & Xuất JSON
-            </button>
           </div>
         </div>
       </header>
@@ -261,121 +256,6 @@
       <!-- Floating Action Modal (Mua Đất [Space] / Bỏ Qua [Esc] / Xác Nhận Thanh Toán [Space] / Phá Sản [Space]) -->
       <div id="floating-action-modal" class="floating-action-modal hidden" role="dialog" aria-modal="true">
         <div class="action-card-inner" id="action-card-inner"></div>
-      </div>
-
-      <!-- Owner-Only SHA-256 PIN Gate Modal (Method 1: WebCrypto SHA-256 + Ctrl+Shift+E) -->
-      <div id="admin-pin-gate-modal" class="admin-tile-editor-modal hidden" role="dialog" aria-modal="true">
-        <div class="admin-editor-card" style="max-width: 420px">
-          <div class="admin-editor-header">
-            <div>
-              <h3>🔐 XÁC THỰC CHỦ SỞ HỮU (SHA-256)</h3>
-              <p>Nhập mật khẩu bí mật của chủ web để mở khóa Studio Cấu Hình 40 Ô & Xuất JSON.</p>
-            </div>
-            <button id="btn-close-pin-gate" class="tile-popup-close" title="Đóng (Esc)">✕</button>
-          </div>
-          <div class="admin-editor-body">
-            <div class="admin-field-row">
-              <label for="admin-pin-input">Mật khẩu bí mật (SHA-256 Protected):</label>
-              <input
-                id="admin-pin-input"
-                type="password"
-                placeholder="Nhập mật khẩu chủ web..."
-                class="admin-input"
-                autocomplete="off"
-              />
-              <small id="admin-pin-error" style="color: #f87171; font-size: 11px; display: none">
-                ❌ Mật khẩu không chính xác! Vui lòng thử lại.
-              </small>
-            </div>
-          </div>
-          <div class="admin-editor-footer">
-            <button id="btn-submit-pin-gate" class="action-btn action-btn-buy" style="width: 100%">
-              🔓 Xác Thực & Mở Studio
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Owner-Only Admin Tile Config Studio & JSON Exporter Modal (FEAT-05) -->
-      <div id="admin-tile-editor-modal" class="admin-tile-editor-modal hidden" role="dialog" aria-modal="true">
-        <div class="admin-editor-card">
-          <div class="admin-editor-header">
-            <div>
-              <h3>🛠️ STUDIO CẤU HÌNH 40 Ô ĐẤT (DÀNH RIÊNG CHO CHỦ WEB)</h3>
-              <p>Chỉnh sửa thông số bất kỳ ô nào, áp dụng trực tiếp lên bàn cờ 3D và xuất file JSON gửi cho AI.</p>
-            </div>
-            <button id="btn-close-admin-studio" class="tile-popup-close" title="Đóng Studio (Esc)">✕</button>
-          </div>
-
-          <div class="admin-editor-body">
-            <div class="admin-field-row">
-              <label for="admin-select-tile">Chọn Ô Cờ (#0 – #39):</label>
-              <select id="admin-select-tile" class="admin-input"></select>
-            </div>
-
-            <div class="admin-grid-2col">
-              <div class="admin-field-row">
-                <label for="admin-tile-name">Tên Ô Đất / Sự Kiện:</label>
-                <input id="admin-tile-name" type="text" class="admin-input" />
-              </div>
-              <div class="admin-field-row">
-                <label for="admin-tile-icon">Icon Emoji:</label>
-                <input id="admin-tile-icon" type="text" class="admin-input" />
-              </div>
-            </div>
-
-            <div class="admin-grid-3col" id="admin-property-numbers-wrap">
-              <div class="admin-field-row">
-                <label for="admin-tile-price">Giá Mua / Thuế ($):</label>
-                <input id="admin-tile-price" type="number" class="admin-input" />
-              </div>
-              <div class="admin-field-row">
-                <label for="admin-tile-upgrade">Giá Nâng Cấp ($):</label>
-                <input id="admin-tile-upgrade" type="number" class="admin-input" />
-              </div>
-              <div class="admin-field-row">
-                <label for="admin-tile-color">Màu Hex (#):</label>
-                <input id="admin-tile-color" type="text" class="admin-input" />
-              </div>
-            </div>
-
-            <div class="admin-grid-4col" id="admin-rents-wrap">
-              <div class="admin-field-row">
-                <label for="admin-rent-0">Thuê Cấp 1 ($):</label>
-                <input id="admin-rent-0" type="number" class="admin-input" />
-              </div>
-              <div class="admin-field-row">
-                <label for="admin-rent-1">Thuê Cấp 2 ($):</label>
-                <input id="admin-rent-1" type="number" class="admin-input" />
-              </div>
-              <div class="admin-field-row">
-                <label for="admin-rent-2">Thuê Cấp 3 ($):</label>
-                <input id="admin-rent-2" type="number" class="admin-input" />
-              </div>
-              <div class="admin-field-row">
-                <label for="admin-rent-3">Thuê Cấp 4 ($):</label>
-                <input id="admin-rent-3" type="number" class="admin-input" />
-              </div>
-            </div>
-
-            <div class="admin-field-row">
-              <label for="admin-tile-reason">Lý Do Thu Tiền (`rentReason`):</label>
-              <input id="admin-tile-reason" type="text" class="admin-input" />
-            </div>
-
-            <div class="admin-field-row">
-              <label for="admin-tile-desc">Mô Tả Chi Tiết (`description`):</label>
-              <textarea id="admin-tile-desc" rows="2" class="admin-input"></textarea>
-            </div>
-          </div>
-
-          <div class="admin-editor-footer">
-            <button id="btn-admin-save-tile" class="action-btn action-btn-buy">💾 Lưu Ô Này Lên Bàn Cờ 3D</button>
-            <button id="btn-admin-export-json" class="action-btn modal-btn buyout">📥 Xuất File JSON (40 Ô)</button>
-            <button id="btn-admin-reset-default" class="action-btn action-btn-skip">🔄 Khôi Phục Mặc Định</button>
-            <button id="btn-admin-lock-studio" class="action-btn action-btn-bankrupt">🔒 Khóa Lại Studio</button>
-          </div>
-        </div>
       </div>
 
       <!-- Bottom-Right Roll Dice Dock with Spacebar Power Charge Bar -->

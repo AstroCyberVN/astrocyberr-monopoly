@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AstroCyberr Monopoly — Admin Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800;900&family=Chakra+Petch:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="admin-root">
+      <!-- STATE 1: AUTH GATE (GOOGLE OAUTH ONLY) -->
+      <section id="admin-auth-screen" class="admin-auth-screen">
+        <div class="admin-auth-card">
+          <div class="admin-auth-badge">🔒 SUPABASE GOOGLE OAUTH • PRIVATE CONSOLE</div>
+          <h1 class="admin-auth-title">ASTROCYBERR MONOPOLY</h1>
+          <p class="admin-auth-subtitle">
+            Trang quản trị độc lập (<code>/admin</code>) đồng bộ trực tiếp với cơ sở dữ liệu
+            <strong>Supabase Realtime</strong>. Chỉ dành riêng cho 2 tài khoản quản trị viên được
+            cấp quyền.
+          </p>
+
+          <div id="admin-auth-error" class="admin-auth-error hidden" role="alert"></div>
+          <div id="admin-auth-loading" class="admin-auth-loading">
+            ⏳ Đang kiểm tra phiên đăng nhập Supabase...
+          </div>
+
+          <button id="btn-google-login" class="btn-google-oauth hidden" type="button">
+            <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+              <path
+                fill="#FFC107"
+                d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+              />
+              <path
+                fill="#FF3D00"
+                d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
+              />
+              <path
+                fill="#4CAF50"
+                d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
+              />
+              <path
+                fill="#1976D2"
+                d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
+              />
+            </svg>
+            <span>Đăng nhập bằng Google (Gmail Quản Trị)</span>
+          </button>
+
+          <div class="admin-whitelist-note">
+            <span>🛡️ Whitelist được bảo vệ bởi PostgreSQL RLS:</span>
+            <code>astrocyberr@gmail.com</code> • <code>tructhuy1910@gmail.com</code>
+          </div>
+        </div>
+      </section>
+
+      <!-- STATE 2: AUTHORIZED ADMIN DASHBOARD -->
+      <div id="admin-dashboard" class="admin-dashboard hidden">
+        <!-- Top Header Bar -->
+        <header class="admin-topbar">
+          <div class="admin-topbar-left">
+            <div class="admin-brand-pill">🛡️ ADMIN CONSOLE</div>
+            <div>
+              <h1 class="admin-topbar-title">ASTROCYBERR MONOPOLY STUDIO</h1>
+              <div class="admin-sync-meta">
+                <span id="admin-user-email" class="admin-email-badge">🟢 --</span>
+                <span id="admin-sync-status" class="admin-sync-badge">☁️ Đang tải từ Supabase...</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="admin-topbar-actions">
+            <button id="btn-save-supabase" class="admin-btn admin-btn-primary" type="button">
+              ☁️ Lưu & Đồng Bộ Lên Supabase
+            </button>
+            <button id="btn-export-json" class="admin-btn admin-btn-secondary" type="button">
+              📥 Xuất JSON
+            </button>
+            <label for="input-import-json" class="admin-btn admin-btn-secondary" style="cursor: pointer">
+              📤 Nhập JSON
+            </label>
+            <input id="input-import-json" type="file" accept=".json,application/json" class="hidden" />
+            <button id="btn-reset-defaults" class="admin-btn admin-btn-warning" type="button">
+              🔄 Khôi Phục Mặc Định
+            </button>
+            <button id="btn-sign-out" class="admin-btn admin-btn-danger" type="button">
+              🚪 Đăng Xuất
+            </button>
+          </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="admin-tabs-nav" aria-label="Các mục cấu hình">
+          <button class="admin-tab-btn active" data-tab="tab-tiles" type="button">
+            🗺️ 1. Cấu Hình 40 Ô Cờ (40 Tiles)
+          </button>
+          <button class="admin-tab-btn" data-tab="tab-rules" type="button">
+            ⚖️ 2. Luật Kinh Tế & Hệ Số Game
+          </button>
+          <button class="admin-tab-btn" data-tab="tab-chars-cards" type="button">
+            🧑🏽 3. Nhân Vật Chibi (4) & Thẻ Rương (10)
+          </button>
+        </nav>
+
+        <!-- Toast Notification Banner -->
+        <div id="admin-toast" class="admin-toast hidden" role="status" aria-live="polite"></div>
+
+        <!-- TAB 1: 40 BOARD TILES EDITOR -->
+        <main id="tab-tiles" class="admin-tab-panel active">
+          <div class="tiles-workspace">
+            <!-- Left Sidebar: 40 Tiles List & Filter -->
+            <aside class="tiles-list-sidebar">
+              <div class="tiles-filter-bar">
+                <input
+                  id="tile-search-input"
+                  type="search"
+                  class="admin-input"
+                  placeholder="🔍 Tìm theo tên hoặc #ô (VD: #39, Kim Cương)..."
+                />
+                <select id="tile-type-filter" class="admin-input">
+                  <option value="ALL">Tất cả 40 ô cờ</option>
+                  <option value="PROPERTY">🏠 Ô Đất Mua Được (PROPERTY)</option>
+                  <option value="START">🚩 Ô Khởi Hành (START)</option>
+                  <option value="CHEST">🧰 Rương Kho Báu (CHEST)</option>
+                  <option value="DESERTED_ISLAND">🏝️ Đảo Hoang (DESERTED_ISLAND)</option>
+                  <option value="NETHER_PORTAL">🟣 Cổng Địa Ngục (NETHER_PORTAL)</option>
+                  <option value="FESTIVAL">🎪 Lễ Hội Nhân Đôi (FESTIVAL)</option>
+                  <option value="END_PORTAL">🌌 Cổng The End (END_PORTAL)</option>
+                  <option value="ROYAL_TAX">👑 Thuế Hoàng Gia (ROYAL_TAX)</option>
+                </select>
+              </div>
+              <div id="tiles-grid-list" class="tiles-grid-list"></div>
+            </aside>
+
+            <!-- Right Detail Form: Selected Tile Editor -->
+            <section class="tile-detail-editor">
+              <div class="tile-editor-header">
+                <div>
+                  <span id="editor-tile-badge" class="editor-tile-badge">#0 • START</span>
+                  <h2 id="editor-tile-heading">🚩 Đại Lộ Khởi Hành</h2>
+                </div>
+                <div class="tile-editor-quick-btns">
+                  <button id="btn-prev-tile" class="admin-btn admin-btn-secondary" type="button">
+                    ◀ Ô Trước
+                  </button>
+                  <button id="btn-next-tile" class="admin-btn admin-btn-secondary" type="button">
+                    Ô Tiếp ▶
+                  </button>
+                </div>
+              </div>
+
+              <div class="admin-form-grid">
+                <div class="admin-field">
+                  <label for="field-tile-name">Tên Ô Đất / Sự Kiện</label>
+                  <input id="field-tile-name" type="text" class="admin-input" />
+                </div>
+
+                <div class="admin-field">
+                  <label for="field-tile-icon">Biểu Tượng (Emoji)</label>
+                  <input id="field-tile-icon" type="text" class="admin-input" />
+                </div>
+
+                <div class="admin-field">
+                  <label for="field-tile-type">Loại Ô (`type`)</label>
+                  <select id="field-tile-type" class="admin-input">
+                    <option value="PROPERTY">PROPERTY (Ô Đất Mua & Xây Nhà)</option>
+                    <option value="START">START (Ô Khởi Hành)</option>
+                    <option value="CHEST">CHEST (Rương Kho Báu)</option>
+                    <option value="DESERTED_ISLAND">DESERTED_ISLAND (Đảo Hoang Nghỉ 1 Lượt)</option>
+                    <option value="NETHER_PORTAL">NETHER_PORTAL (Cổng Địa Ngục 2 Chiều)</option>
+                    <option value="FESTIVAL">FESTIVAL (Lễ Hội Nhân Đôi Thuê)</option>
+                    <option value="END_PORTAL">END_PORTAL (Cổng Dịch Chuyển The End)</option>
+                    <option value="ROYAL_TAX">ROYAL_TAX (Thuế Hoàng Gia)</option>
+                  </select>
+                </div>
+
+                <div class="admin-field">
+                  <label for="field-tile-group">Cụm Màu Độc Quyền (`colorGroup`)</label>
+                  <select id="field-tile-group" class="admin-input">
+                    <option value="">-- Không thuộc cụm đất --</option>
+                    <option value="PLAINS">PLAINS (Đồng Bằng Cỏ Xanh)</option>
+                    <option value="OAK_FOREST">OAK_FOREST (Rừng Gỗ Sồi)</option>
+                    <option value="SWAMP">SWAMP (Đầm Lầy Đá Cuội)</option>
+                    <option value="DESERT">DESERT (Sa Mạc Cát Vàng)</option>
+                    <option value="SNOWY_PEAKS">SNOWY_PEAKS (Đỉnh Tuyết Trắng)</option>
+                    <option value="CHERRY_GROVE">CHERRY_GROVE (Thung Lũng Anh Đào)</option>
+                    <option value="NETHER">NETHER (Pháo Đài Nether)</option>
+                    <option value="END_CITY">END_CITY (Thành Phố The End)</option>
+                  </select>
+                </div>
+
+                <div class="admin-field">
+                  <label for="field-tile-color">Mã Màu Hiển Thị (`colorHex`)</label>
+                  <div class="color-picker-row">
+                    <input id="field-tile-color-picker" type="color" class="color-swatch-input" value="#10b981" />
+                    <input id="field-tile-color" type="text" class="admin-input" placeholder="#10b981" />
+                  </div>
+                </div>
+
+                <div class="admin-field">
+                  <label for="field-tile-price">Giá Mua Đất / Tiền Thuế ($)</label>
+                  <input id="field-tile-price" type="number" class="admin-input" min="0" step="10" />
+                </div>
+
+                <div class="admin-field">
+                  <label for="field-tile-upgrade">Chi Phí Nâng Cấp Nhà ($)</label>
+                  <input id="field-tile-upgrade" type="number" class="admin-input" min="0" step="10" />
+                </div>
+              </div>
+
+              <div class="rents-box" id="tile-rents-section">
+                <h3>🏠 Bảng Giá Thuê 4 Cấp Công Trình ($)</h3>
+                <div class="rents-4col-grid">
+                  <div class="admin-field">
+                    <label for="field-rent-0">Cấp 1: Cọc Rào Gỗ ($)</label>
+                    <input id="field-rent-0" type="number" class="admin-input" min="0" step="5" />
+                  </div>
+                  <div class="admin-field">
+                    <label for="field-rent-1">Cấp 2: Nhà Gỗ ($)</label>
+                    <input id="field-rent-1" type="number" class="admin-input" min="0" step="5" />
+                  </div>
+                  <div class="admin-field">
+                    <label for="field-rent-2">Cấp 3: Biệt Thự 2 Tầng ($)</label>
+                    <input id="field-rent-2" type="number" class="admin-input" min="0" step="5" />
+                  </div>
+                  <div class="admin-field">
+                    <label for="field-rent-3">Cấp 4: Lâu Đài Vương Miện ($)</label>
+                    <input id="field-rent-3" type="number" class="admin-input" min="0" step="5" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="admin-field" style="margin-top: 14px">
+                <label for="field-tile-reason">Lý Do Thu Phí Khi Đi Vào (`rentReason`)</label>
+                <input
+                  id="field-tile-reason"
+                  type="text"
+                  class="admin-input"
+                  placeholder="VD: tham quan khu sinh thái rừng sồi và nghỉ chân tại trạm gỗ..."
+                />
+              </div>
+
+              <div class="admin-field" style="margin-top: 14px">
+                <label for="field-tile-desc">Mô Tả Chi Tiết Ô Cờ (`description`)</label>
+                <textarea id="field-tile-desc" rows="3" class="admin-input"></textarea>
+              </div>
+
+              <div class="tile-editor-footer">
+                <button id="btn-apply-tile-and-sync" class="admin-btn admin-btn-primary" type="button">
+                  💾 Áp Dụng Ô Này & Đồng Bộ Lên Supabase
+                </button>
+              </div>
+            </section>
+          </div>
+        </main>
+
+        <!-- TAB 2: ECONOMY & GAME RULES -->
+        <main id="tab-rules" class="admin-tab-panel">
+          <div class="rules-container">
+            <div class="section-header-block">
+              <h2>⚖️ Cấu Hình Kinh Tế & Luật Chơi Toàn Cục (`rules_json`)</h2>
+              <p>
+                Mọi thay đổi tại đây sau khi bấm <strong>Lưu & Đồng Bộ Lên Supabase</strong> sẽ tự
+                động áp dụng cho bàn cờ chính mà không cần sửa code.
+              </p>
+            </div>
+
+            <div class="rules-grid">
+              <div class="rule-card">
+                <label for="rule-initial-gold">💰 Vốn Khởi Đầu Mỗi Người Chơi ($)</label>
+                <input id="rule-initial-gold" type="number" class="admin-input" min="100" step="50" />
+                <small>Số tiền mặc định khi bắt đầu ván mới (Mặc định: $1500).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-start-bonus">🚩 Thưởng Đi Qua Ô Khởi Hành #0 ($)</label>
+                <input id="rule-start-bonus" type="number" class="admin-input" min="0" step="10" />
+                <small>Tiền thưởng cơ bản khi hoàn thành 1 vòng bàn cờ (Mặc định: $200).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-alex-bonus">🏹 Nội Tại Alex: Thưởng Qua Ô Khởi Hành ($)</label>
+                <input id="rule-alex-bonus" type="number" class="admin-input" min="0" step="10" />
+                <small>Tiền thưởng đặc biệt dành riêng cho Alex khi qua Ô #0 (Mặc định: $240).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-steve-discount">⛏️ Nội Tại Steve: Giảm Giá Nâng Cấp Nhà (%)</label>
+                <input id="rule-steve-discount" type="number" class="admin-input" min="0" max="90" step="1" />
+                <small>Phần trăm giảm chi phí nâng cấp công trình cho Steve (Mặc định: 15%).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-creeper-discount">🧨 Nội Tại Creeper: Giảm Thuế Hoàng Gia (%)</label>
+                <input id="rule-creeper-discount" type="number" class="admin-input" min="0" max="90" step="1" />
+                <small>Phần trăm giảm thuế tại Ô #38 cho Creeper (Mặc định: 20%).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-enderman-bonus">🔮 Nội Tại Enderman: Thưởng Dịch Chuyển Cổng ($)</label>
+                <input id="rule-enderman-bonus" type="number" class="admin-input" min="0" step="10" />
+                <small>Tiền thưởng mỗi lần Enderman đi qua Cổng Địa Ngục / The End (Mặc định: $50).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-liquidation-rate">🏚️ Tỷ Lệ Thanh Lý Đất Cứu Phá Sản (%)</label>
+                <input id="rule-liquidation-rate" type="number" class="admin-input" min="10" max="100" step="5" />
+                <small>Phần trăm giá trị thu về khi bán gấp tài sản để trả nợ (Mặc định: 75%).</small>
+              </div>
+
+              <div class="rule-card">
+                <label for="rule-buyout-mult">⚔️ Hệ Số Mua Đứt Đất Đối Thủ (Hostile Buyout ×)</label>
+                <input id="rule-buyout-mult" type="number" class="admin-input" min="1.1" max="5" step="0.1" />
+                <small>Hệ số nhân tổng vốn đầu tư để cưỡng chế mua lại đất cấp 1–3 (Mặc định: 1.8x).</small>
+              </div>
+            </div>
+
+            <div class="tile-editor-footer" style="margin-top: 20px">
+              <button id="btn-save-rules-supabase" class="admin-btn admin-btn-primary" type="button">
+                ☁️ Lưu Luật Kinh Tế Lên Supabase
+              </button>
+            </div>
+          </div>
+        </main>
+
+        <!-- TAB 3: 4 CHARACTERS & 10 CHEST CARDS -->
+        <main id="tab-chars-cards" class="admin-tab-panel">
+          <div class="chars-cards-container">
+            <section class="chars-section">
+              <div class="section-header-block">
+                <h2>🧑🏽 Cấu Hình 4 Nhân Vật Chibi & Nội Tại (`characters_json`)</h2>
+                <p>Chỉnh sửa tên hiển thị, danh hiệu và mô tả kỹ năng nội tại của 4 nhân vật.</p>
+              </div>
+              <div id="characters-editor-grid" class="characters-editor-grid"></div>
+            </section>
+
+            <section class="cards-section" style="margin-top: 28px">
+              <div class="section-header-block">
+                <h2>🧰 Cấu Hình 10 Thẻ Rương Kho Báu & Khí Vận (`chest_cards_json`)</h2>
+                <p>Chỉnh sửa nội dung, số tiền thưởng/phạt (`goldDelta`) hoặc ô dịch chuyển (`moveToTile`).</p>
+              </div>
+              <div id="chest-cards-editor-grid" class="chest-cards-editor-grid"></div>
+            </section>
+
+            <div class="tile-editor-footer" style="margin-top: 20px">
+              <button id="btn-save-chars-cards-supabase" class="admin-btn admin-btn-primary" type="button">
+                ☁️ Lưu Nhân Vật & Thẻ Rương Lên Supabase
+              </button>
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="/src/admin.ts"></script>
+  </body>
+</html>
